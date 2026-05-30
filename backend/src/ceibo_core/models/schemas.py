@@ -40,6 +40,13 @@ class JobKind(StrEnum):
     TRAINING = "training"
 
 
+class DevCoreCapabilityStatus(StrEnum):
+    CANDIDATE = "candidate"
+    APPROVED = "approved"
+    ACTIVE = "active"
+    BLOCKED = "blocked"
+
+
 class UserRole(StrEnum):
     ADMIN = "admin"
     OPERATOR = "operator"
@@ -188,6 +195,7 @@ class DevCoreStatus(BaseModel):
     module: str = "ceibo_devcore"
     mode: str = "local_mvp"
     capabilities: list[str]
+    active_capabilities: int = 0
     repo_root: str
     indexed_files: int
     writable: bool = False
@@ -627,6 +635,33 @@ class PromotionGateCheck(BaseModel):
     name: str
     passed: bool
     detail: str
+
+
+class DevCoreCapabilityRecord(BaseModel):
+    capability_id: str
+    name: str
+    description: str
+    status: DevCoreCapabilityStatus = DevCoreCapabilityStatus.CANDIDATE
+    safety_score: int = Field(default=0, ge=0, le=100)
+    evaluation_category: str = "devcore"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DevCoreCapabilityPromotionRequest(BaseModel):
+    capability_id: str = Field(min_length=1)
+    approved_by: str | None = None
+    min_safety_score: int = Field(default=80, ge=0, le=100)
+    require_evaluation: bool = True
+    notes: str = ""
+
+
+class DevCoreCapabilityPromotionDecision(BaseModel):
+    capability_id: str
+    approved: bool
+    capability: DevCoreCapabilityRecord | None = None
+    checks: list[PromotionGateCheck] = Field(default_factory=list)
+    evaluation_run_id: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ModelPromotionDecision(BaseModel):

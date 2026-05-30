@@ -20,6 +20,8 @@ from ceibo_core.models.schemas import (
     JobStatus,
     KnowledgeItemRequest,
     DevCorePlanRequest,
+    DevCoreCapabilityPromotionRequest,
+    DevCoreCapabilityStatus,
     LongRunningJobRequest,
     ModelRecommendationRequest,
     ModelPromotionRequest,
@@ -39,7 +41,7 @@ from ceibo_core.models.schemas import (
 from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
-from ceibo_core.services.evaluation_harness import EvaluationHarnessService
+from ceibo_core.services.evaluation_harness import EvaluationHarnessService, evaluation_harness_service
 from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.jobs import long_running_job_service
 from ceibo_core.services.memory import knowledge_service, memory_service
@@ -157,6 +159,25 @@ def test_devcore_reports_local_status_and_plan():
     assert status.indexed_files > 0
     assert plan.steps[0].action == "inspect"
     assert "backend/src/ceibo_core/api" in plan.steps[0].target
+
+
+@pytest.mark.asyncio
+async def test_devcore_capability_promotion_gate_activates_safe_capability():
+    await evaluation_harness_service.run()
+
+    decision = devcore_service.promote_capability(
+        DevCoreCapabilityPromotionRequest(
+            capability_id="repo-inspection",
+            approved_by="local-admin",
+        )
+    )
+    metrics = devcore_service.metrics()
+
+    assert decision.approved is True
+    assert decision.capability is not None
+    assert decision.capability.status == DevCoreCapabilityStatus.ACTIVE
+    assert metrics["active"] >= 1
+    assert any(check.name == "devcore_evaluation_score" for check in decision.checks)
 
 
 @pytest.mark.asyncio

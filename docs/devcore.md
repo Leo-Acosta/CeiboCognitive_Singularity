@@ -18,6 +18,8 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 ## Endpoints
 
 - `GET /api/v1/devcore/status`
+- `GET /api/v1/devcore/capabilities`
+- `POST /api/v1/devcore/capabilities/promote`
 - `POST /api/v1/devcore/plan`
 
 Ejemplo:
@@ -46,3 +48,6 @@ gates de seguridad, auditoria y evaluacion.
 - Knowledge Base guarda el plan serializado con tags `devcore` y `plan`.
 - Evaluation Harness ejecuta `devcore.safe-planning`.
 - RBAC permite planificacion DevCore a `admin`, `operator` y `researcher`.
+- Promotion Gate activa capacidades DevCore solo con aprobacion humana, score de
+  seguridad suficiente y evaluacion DevCore disponible.
+- Singularity Index mide capacidades DevCore activas en `Uso de herramientas`.

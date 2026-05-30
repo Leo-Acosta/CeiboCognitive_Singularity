@@ -136,6 +136,7 @@ type DevCoreStatus = {
   module: string;
   mode: string;
   capabilities: string[];
+  active_capabilities: number;
   repo_root: string;
   indexed_files: number;
   writable: boolean;
@@ -1880,7 +1881,7 @@ export default function Home() {
                         </p>
                       </div>
                       <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-xs text-emerald-100">
-                        {devCoreStatus?.writable ? "write" : "read-only"}
+                        {devCoreStatus?.active_capabilities ?? 0} active
                       </span>
                     </div>
                     <p className="mt-3 line-clamp-1 text-xs text-slate-500">

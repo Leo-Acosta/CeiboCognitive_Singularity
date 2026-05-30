@@ -85,6 +85,8 @@ API:
 - `GET /api/v1/engine/status`
 - `POST /api/v1/engine/generate`
 - `GET /api/v1/devcore/status`
+- `GET /api/v1/devcore/capabilities`
+- `POST /api/v1/devcore/capabilities/promote`
 - `POST /api/v1/devcore/plan`
 - `POST /api/v1/engine/evaluations/run`
 - `GET /api/v1/engine/evaluations/latest`
