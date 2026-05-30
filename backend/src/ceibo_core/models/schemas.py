@@ -56,6 +56,18 @@ class SecurityPolicyStatus(BaseModel):
     role_permissions: dict[str, list[str]]
 
 
+class AuditEventRecord(BaseModel):
+    event_id: str
+    user_id: str
+    role: UserRole | None = None
+    event_type: str
+    actor: str
+    action: SecurityAction | None = None
+    allowed: bool | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     user_id: str = "local-user"

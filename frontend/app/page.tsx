@@ -74,6 +74,18 @@ type SecurityPolicyStatus = {
   role_permissions: Record<string, string[]>;
 };
 
+type AuditEventRecord = {
+  event_id: string;
+  user_id: string;
+  role: "admin" | "operator" | "researcher" | "viewer" | null;
+  event_type: string;
+  actor: string;
+  action: string | null;
+  allowed: boolean | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
 type SingularitySignal = {
   name: string;
   active: boolean;
@@ -289,6 +301,7 @@ export default function Home() {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [coreStatus, setCoreStatus] = useState<CoreStatus | null>(null);
   const [securityStatus, setSecurityStatus] = useState<SecurityPolicyStatus | null>(null);
+  const [auditEvents, setAuditEvents] = useState<AuditEventRecord[]>([]);
   const [singularityIndex, setSingularityIndex] = useState<SingularityIndex | null>(null);
   const [singularityHistory, setSingularityHistory] = useState<SingularitySnapshotRecord[]>([]);
   const [isCapturingSnapshot, setIsCapturingSnapshot] = useState(false);
@@ -391,6 +404,7 @@ export default function Home() {
       const [
         statusResponse,
         securityResponse,
+        auditResponse,
         singularityResponse,
         singularityHistoryResponse,
         tasksResponse,
@@ -402,6 +416,7 @@ export default function Home() {
       ] = await Promise.all([
         fetch(`${apiUrl}/api/v1/status`),
         fetch(`${apiUrl}/api/v1/status/security`),
+        fetch(`${apiUrl}/api/v1/status/audit?limit=6`),
         fetch(`${apiUrl}/api/v1/status/singularity-index`),
         fetch(`${apiUrl}/api/v1/status/singularity-index/history?limit=6`),
         fetch(`${apiUrl}/api/v1/tasks`),
@@ -416,6 +431,9 @@ export default function Home() {
       }
       if (securityResponse.ok) {
         setSecurityStatus((await securityResponse.json()) as SecurityPolicyStatus);
+      }
+      if (auditResponse.ok) {
+        setAuditEvents((await auditResponse.json()) as AuditEventRecord[]);
       }
       if (singularityResponse.ok) {
         setSingularityIndex((await singularityResponse.json()) as SingularityIndex);
@@ -444,8 +462,20 @@ export default function Home() {
       if (registryResponse.ok) {
         setRegistryOverview((await registryResponse.json()) as RegistryOverview);
       }
+      await refreshAuditEvents();
     } catch {
       setConnectionState("offline");
+    }
+  }
+
+  async function refreshAuditEvents() {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/status/audit?limit=6`);
+      if (response.ok) {
+        setAuditEvents((await response.json()) as AuditEventRecord[]);
+      }
+    } catch {
+      // Keep the last visible audit state.
     }
   }
 
@@ -472,6 +502,7 @@ export default function Home() {
       if (singularityResponse.ok) {
         setSingularityIndex((await singularityResponse.json()) as SingularityIndex);
       }
+      await refreshAuditEvents();
       setConnectionState("ready");
     } catch {
       setConnectionState("offline");
@@ -519,6 +550,7 @@ export default function Home() {
       if (singularityResponse.ok) {
         setSingularityIndex((await singularityResponse.json()) as SingularityIndex);
       }
+      await refreshAuditEvents();
       setConnectionState("ready");
     } catch {
       setConnectionState("offline");
@@ -550,6 +582,7 @@ export default function Home() {
       if (singularityResponse.ok) {
         setSingularityIndex((await singularityResponse.json()) as SingularityIndex);
       }
+      await refreshAuditEvents();
       setConnectionState("ready");
     } catch {
       setConnectionState("offline");
@@ -885,6 +918,7 @@ export default function Home() {
           ? `QLoRA job ${report.run_id} iniciado: ${report.status}.`
           : `Preflight QLoRA: ${report.status}.`,
       );
+      await refreshAuditEvents();
       setConnectionState("ready");
     } catch {
       setConnectionState("offline");
@@ -1340,6 +1374,59 @@ export default function Home() {
                         <span className="rounded-full bg-white/8 px-2.5 py-1 text-xs text-slate-300">
                           {securityStatus?.rbac_enforced ? "enforced" : "local-dev"}
                         </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-white/7 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                            Audit Trail
+                          </p>
+                          <p className="mt-1 text-sm text-slate-300">
+                            Acciones sensibles recientes
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void refreshAuditEvents()}
+                          className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-xs text-slate-200 transition hover:bg-white/12"
+                        >
+                          Actualizar
+                        </button>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {auditEvents.length === 0 ? (
+                          <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-500">
+                            Aun no hay eventos auditados en esta sesion.
+                          </p>
+                        ) : (
+                          auditEvents.slice(0, 5).map((event) => (
+                            <div
+                              key={event.event_id}
+                              className="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="line-clamp-1 text-xs font-medium text-slate-200">
+                                  {event.event_type}
+                                </p>
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[11px] ${
+                                    event.allowed === false
+                                      ? "bg-red-300/10 text-red-200"
+                                      : "bg-emerald-300/10 text-emerald-200"
+                                  }`}
+                                >
+                                  {event.allowed === false ? "denied" : "ok"}
+                                </span>
+                              </div>
+                              <p className="mt-1 line-clamp-1 text-xs text-slate-500">
+                                {event.user_id} / {event.role ?? "unknown"} /{" "}
+                                {event.action ?? event.actor}
+                              </p>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
 

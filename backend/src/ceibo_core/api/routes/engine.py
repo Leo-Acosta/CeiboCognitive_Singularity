@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ceibo_core.ai_engine import ceibo_engine
-from ceibo_core.core.security import require_permission
+from ceibo_core.core.security import require_audited_permission
 from ceibo_core.db.session import get_db
 from ceibo_core.models.schemas import (
     DatasetVersionRecord,
     DatasetVersionRequest,
+    AuthContext,
     EngineGenerateRequest,
     EngineGenerateResponse,
     EngineStatus,
@@ -36,6 +37,7 @@ from ceibo_core.models.schemas import (
     TrainingPlanResponse,
     TrainingRunnerReport,
 )
+from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.dataset_curator import dataset_curator_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.model_catalog import model_catalog_service
@@ -54,9 +56,22 @@ async def engine_status() -> EngineStatus:
 
 @router.post("/evaluations/run", response_model=EvaluationSuiteReport)
 async def run_evaluation_suite(
-    _auth=Depends(require_permission(SecurityAction.RUN_EVALUATION)),
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.RUN_EVALUATION, "evaluation_harness")
+    ),
 ) -> EvaluationSuiteReport:
-    return await evaluation_harness_service.run()
+    report = await evaluation_harness_service.run()
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="evaluation.run",
+        actor="evaluation_harness",
+        action=SecurityAction.RUN_EVALUATION,
+        allowed=True,
+        payload={"run_id": report.run_id, "average_score": report.average_score},
+    )
+    return report
 
 
 @router.get("/evaluations/latest", response_model=EvaluationSuiteReport | None)
@@ -89,9 +104,21 @@ async def registry_overview(
 @router.post("/registry/bootstrap", response_model=RegistryOverview)
 async def bootstrap_registry(
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_permission(SecurityAction.MANAGE_REGISTRY)),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.MANAGE_REGISTRY, "model_registry")
+    ),
 ) -> RegistryOverview:
-    return await model_registry_service.bootstrap_seed_registry(db)
+    overview = await model_registry_service.bootstrap_seed_registry(db)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="registry.bootstrap",
+        actor="model_registry",
+        action=SecurityAction.MANAGE_REGISTRY,
+        allowed=True,
+        payload={"datasets": len(overview.datasets), "models": len(overview.models)},
+    )
+    return overview
 
 
 @router.get("/registry/datasets", response_model=list[DatasetVersionRecord])
@@ -106,12 +133,24 @@ async def list_dataset_versions(
 async def register_dataset_version(
     request: DatasetVersionRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_permission(SecurityAction.MANAGE_REGISTRY)),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.MANAGE_REGISTRY, "model_registry")
+    ),
 ) -> DatasetVersionRecord:
     try:
-        return await model_registry_service.register_dataset(db, request)
+        record = await model_registry_service.register_dataset(db, request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="registry.dataset_registered",
+        actor="model_registry",
+        action=SecurityAction.MANAGE_REGISTRY,
+        allowed=True,
+        payload={"dataset_version_id": record.version_id, "path": record.path},
+    )
+    return record
 
 
 @router.get("/registry/models", response_model=list[ModelVersionRecord])
@@ -126,18 +165,46 @@ async def list_model_versions(
 async def register_model_version(
     request: ModelVersionRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_permission(SecurityAction.MANAGE_REGISTRY)),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.MANAGE_REGISTRY, "model_registry")
+    ),
 ) -> ModelVersionRecord:
-    return await model_registry_service.register_model(db, request)
+    record = await model_registry_service.register_model(db, request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="registry.model_registered",
+        actor="model_registry",
+        action=SecurityAction.MANAGE_REGISTRY,
+        allowed=True,
+        payload={"model_version_id": record.version_id, "status": record.status.value},
+    )
+    return record
 
 
 @router.post("/registry/models/promote", response_model=ModelPromotionDecision)
 async def promote_model_version(
     request: ModelPromotionRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_permission(SecurityAction.PROMOTE_MODEL)),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.PROMOTE_MODEL, "model_registry")
+    ),
 ) -> ModelPromotionDecision:
-    return await model_registry_service.promote_model(db, request)
+    decision = await model_registry_service.promote_model(db, request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="registry.model_promotion",
+        actor="model_registry",
+        action=SecurityAction.PROMOTE_MODEL,
+        allowed=decision.approved,
+        payload={
+            "model_version_id": request.model_version_id,
+            "approved": decision.approved,
+            "checks": [check.model_dump() for check in decision.checks],
+        },
+    )
+    return decision
 
 
 @router.post("/models/recommend", response_model=ModelCandidate)
@@ -262,23 +329,49 @@ async def teacher_synthetic_examples(
 @router.post("/training/qlora/preflight", response_model=TrainingRunnerReport)
 async def qlora_preflight(
     request: QloraTrainingRequest,
-    _auth=Depends(require_permission(SecurityAction.START_TRAINING)),
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.START_TRAINING, "training_runner")
+    ),
 ) -> TrainingRunnerReport:
     try:
-        return training_runner_service.preflight(request)
+        report = training_runner_service.preflight(request)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="training.qlora_preflight",
+        actor="training_runner",
+        action=SecurityAction.START_TRAINING,
+        allowed=True,
+        payload={"run_id": report.run_id, "status": report.status.value},
+    )
+    return report
 
 
 @router.post("/training/qlora/start", response_model=TrainingRunnerReport)
 async def qlora_start(
     request: QloraTrainingRequest,
-    _auth=Depends(require_permission(SecurityAction.START_TRAINING)),
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.START_TRAINING, "training_runner")
+    ),
 ) -> TrainingRunnerReport:
     try:
-        return training_runner_service.start(request)
+        report = training_runner_service.start(request)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="training.qlora_started",
+        actor="training_runner",
+        action=SecurityAction.START_TRAINING,
+        allowed=True,
+        payload={"run_id": report.run_id, "status": report.status.value},
+    )
+    return report
 
 
 @router.get("/training/qlora/jobs", response_model=list[TrainingRunnerReport])

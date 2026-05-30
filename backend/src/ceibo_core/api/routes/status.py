@@ -8,12 +8,14 @@ from ceibo_core.core.security import get_auth_context, policy_status, require_pe
 from ceibo_core.db.session import get_db
 from ceibo_core.models.schemas import (
     AuthContext,
+    AuditEventRecord,
     CoreStatus,
     SecurityAction,
     SecurityPolicyStatus,
     SingularityIndex,
     SingularitySnapshotRecord,
 )
+from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.memory import memory_service
 from ceibo_core.services.singularity_index import singularity_index_service
 
@@ -52,6 +54,15 @@ async def security_status(
     _allowed=Depends(require_permission(SecurityAction.READ_STATUS)),
 ) -> SecurityPolicyStatus:
     return policy_status(auth)
+
+
+@router.get("/audit", response_model=list[AuditEventRecord])
+async def audit_events(
+    db: AsyncSession = Depends(get_db),
+    limit: int = 50,
+    _allowed=Depends(require_permission(SecurityAction.READ_STATUS)),
+) -> list[AuditEventRecord]:
+    return await audit_trail_service.recent(db, limit=limit)
 
 
 @router.post("/singularity-index/snapshots", response_model=SingularitySnapshotRecord)

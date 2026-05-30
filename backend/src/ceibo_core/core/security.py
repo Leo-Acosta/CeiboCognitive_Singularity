@@ -1,9 +1,12 @@
 from collections.abc import Callable
 
 from fastapi import Depends, Header, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ceibo_core.core.config import settings
+from ceibo_core.db.session import get_db
 from ceibo_core.models.schemas import AuthContext, SecurityAction, SecurityPolicyStatus, UserRole
+from ceibo_core.services.audit import audit_trail_service
 
 
 ROLE_PERMISSIONS: dict[UserRole, set[SecurityAction]] = {
@@ -50,6 +53,29 @@ async def get_auth_context(
 def require_permission(action: SecurityAction) -> Callable[[AuthContext], AuthContext]:
     def dependency(auth: AuthContext = Depends(get_auth_context)) -> AuthContext:
         assert_permission(auth, action)
+        return auth
+
+    return dependency
+
+
+def require_audited_permission(action: SecurityAction, actor: str) -> Callable:
+    async def dependency(
+        auth: AuthContext = Depends(get_auth_context),
+        db: AsyncSession = Depends(get_db),
+    ) -> AuthContext:
+        try:
+            assert_permission(auth, action)
+        except HTTPException:
+            await audit_trail_service.record(
+                db,
+                auth=auth,
+                event_type="security.denied",
+                actor=actor,
+                action=action,
+                allowed=False,
+                payload={"reason": "rbac_denied"},
+            )
+            raise
         return auth
 
     return dependency

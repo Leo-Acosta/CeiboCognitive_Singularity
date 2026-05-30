@@ -18,6 +18,8 @@ limites de ejecucion.
 - Secret management mediante Kubernetes Secrets en desarrollo y External Secrets/Vault en produccion.
 - Rate limiting en gateway.
 - Auditoria centralizada para acciones de sistema, infraestructura y seguridad.
+- Audit Trail v1 para registrar acciones sensibles permitidas y bloqueadas.
+- Endpoint de consulta: `GET /api/v1/status/audit`.
 - Sandboxing para terminal, archivos y automatizacion desktop.
 - Logs estructurados JSON.
 - TLS en Ingress.

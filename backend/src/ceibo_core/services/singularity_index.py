@@ -139,6 +139,7 @@ class SingularityIndexService:
                         settings.local_dev_admin_enabled or settings.rbac_enforced,
                         "enforced" if settings.rbac_enforced else "local-dev policy",
                     ),
+                    self._signal("Audit Trail v1", True, "acciones sensibles registradas"),
                     self._signal("System control off", not settings.enable_system_control, "seguro por defecto"),
                     self._signal("Security eval", bool(latest_eval), self._eval_detail(latest_eval, "security")),
                 ],

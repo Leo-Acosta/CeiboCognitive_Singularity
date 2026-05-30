@@ -30,6 +30,7 @@ from ceibo_core.models.schemas import (
     UserRole,
 )
 from ceibo_core.services.embeddings import embedding_service
+from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import EvaluationHarnessService
 from ceibo_core.services.memory import memory_service
@@ -288,6 +289,28 @@ def test_task_policy_classifies_infrastructure_and_system_goals():
     assert task_action_for_goal("revisar logs de kubernetes") == SecurityAction.RUN_INFRA_TASK
     assert task_action_for_goal("abrir terminal y tocar archivos") == SecurityAction.RUN_SYSTEM_TASK
     assert task_action_for_goal("resume el estado") == SecurityAction.CREATE_TASK
+
+
+@pytest.mark.asyncio
+async def test_audit_trail_records_local_sensitive_action(monkeypatch):
+    monkeypatch.setattr("ceibo_core.services.audit.settings.persistence_enabled", False)
+    auth = AuthContext(user_id="admin", role=UserRole.ADMIN)
+
+    event = await audit_trail_service.record(
+        None,
+        auth=auth,
+        event_type="test.sensitive_action",
+        actor="test",
+        action=SecurityAction.PROMOTE_MODEL,
+        allowed=True,
+        payload={"target": "model-1"},
+    )
+    recent = await audit_trail_service.recent(None, limit=1)
+
+    assert recent[0].event_id == event.event_id
+    assert recent[0].role == UserRole.ADMIN
+    assert recent[0].action == SecurityAction.PROMOTE_MODEL
+    assert recent[0].payload["target"] == "model-1"
 
 
 @pytest.mark.asyncio
