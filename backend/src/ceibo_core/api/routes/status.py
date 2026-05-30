@@ -4,8 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ceibo_core.agents.registry import agent_registry
 from ceibo_core.ai_engine import ceibo_engine
 from ceibo_core.core.config import settings
+from ceibo_core.core.security import get_auth_context, policy_status, require_permission
 from ceibo_core.db.session import get_db
-from ceibo_core.models.schemas import CoreStatus, SingularityIndex, SingularitySnapshotRecord
+from ceibo_core.models.schemas import (
+    AuthContext,
+    CoreStatus,
+    SecurityAction,
+    SecurityPolicyStatus,
+    SingularityIndex,
+    SingularitySnapshotRecord,
+)
 from ceibo_core.services.memory import memory_service
 from ceibo_core.services.singularity_index import singularity_index_service
 
@@ -36,6 +44,14 @@ async def core_status() -> CoreStatus:
 @router.get("/singularity-index", response_model=SingularityIndex)
 async def singularity_index() -> SingularityIndex:
     return await singularity_index_service.calculate()
+
+
+@router.get("/security", response_model=SecurityPolicyStatus)
+async def security_status(
+    auth: AuthContext = Depends(get_auth_context),
+    _allowed=Depends(require_permission(SecurityAction.READ_STATUS)),
+) -> SecurityPolicyStatus:
+    return policy_status(auth)
 
 
 @router.post("/singularity-index/snapshots", response_model=SingularitySnapshotRecord)

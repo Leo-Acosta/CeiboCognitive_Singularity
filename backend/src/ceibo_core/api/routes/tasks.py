@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ceibo_core.agents.registry import agent_registry
+from ceibo_core.core.security import assert_permission, get_auth_context, task_action_for_goal
 from ceibo_core.db.session import get_db
-from ceibo_core.models.schemas import AgentRole, TaskRecord, TaskRequest, TaskResponse
+from ceibo_core.models.schemas import AgentRole, AuthContext, TaskRecord, TaskRequest, TaskResponse
 from ceibo_core.services.conversations import conversation_store
 from ceibo_core.services.event_bus import event_bus
 from ceibo_core.services.tasks import task_store
@@ -17,7 +18,12 @@ async def list_tasks(db: AsyncSession = Depends(get_db), limit: int = 10) -> lis
 
 
 @router.post("", response_model=TaskResponse)
-async def create_task(request: TaskRequest, db: AsyncSession = Depends(get_db)) -> TaskResponse:
+async def create_task(
+    request: TaskRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(get_auth_context),
+) -> TaskResponse:
+    assert_permission(auth, task_action_for_goal(request.goal))
     orchestrator = agent_registry[AgentRole.CORE_ORCHESTRATOR]
     response = await orchestrator.handle_task(request)
     await task_store.append_task(db, request, response)

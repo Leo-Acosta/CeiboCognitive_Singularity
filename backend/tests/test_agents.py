@@ -6,8 +6,10 @@ import pytest
 
 from ceibo_core.agents.registry import agent_registry
 from ceibo_core.ai_engine import ceibo_engine
+from ceibo_core.core.security import assert_permission, task_action_for_goal
 from ceibo_core.models.schemas import (
     AgentRole,
+    AuthContext,
     ChatRequest,
     DatasetVersionRequest,
     DatasetCurationRequest,
@@ -16,6 +18,7 @@ from ceibo_core.models.schemas import (
     ModelPromotionRequest,
     ModelVersionRequest,
     ModelVersionStatus,
+    SecurityAction,
     TaskRequest,
     TeacherReviewRequest,
     TeacherSyntheticRequest,
@@ -24,6 +27,7 @@ from ceibo_core.models.schemas import (
     TrainingFeedbackRating,
     TrainingFeedbackRequest,
     TrainingPlanRequest,
+    UserRole,
 )
 from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
@@ -269,6 +273,21 @@ def test_training_runner_prefers_local_qlora_venv(monkeypatch):
     monkeypatch.setattr(Path, "exists", lambda self: str(self).endswith("python.exe"))
 
     assert service.runner_python().endswith(".venv-qlora\\Scripts\\python.exe")
+
+
+def test_rbac_allows_admin_and_blocks_viewer_sensitive_action():
+    admin = AuthContext(user_id="admin", role=UserRole.ADMIN)
+    viewer = AuthContext(user_id="viewer", role=UserRole.VIEWER)
+
+    assert_permission(admin, SecurityAction.PROMOTE_MODEL)
+    with pytest.raises(Exception):
+        assert_permission(viewer, SecurityAction.PROMOTE_MODEL)
+
+
+def test_task_policy_classifies_infrastructure_and_system_goals():
+    assert task_action_for_goal("revisar logs de kubernetes") == SecurityAction.RUN_INFRA_TASK
+    assert task_action_for_goal("abrir terminal y tocar archivos") == SecurityAction.RUN_SYSTEM_TASK
+    assert task_action_for_goal("resume el estado") == SecurityAction.CREATE_TASK
 
 
 @pytest.mark.asyncio

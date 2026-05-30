@@ -11,6 +11,10 @@ limites de ejecucion.
 - JWT con issuer propio.
 - OAuth2-ready para proveedores externos.
 - RBAC por usuario, rol, agente y herramienta.
+- RBAC v1 por headers `X-CEIBO-User` y `X-CEIBO-Role`.
+- Roles iniciales: `admin`, `operator`, `researcher`, `viewer`.
+- En desarrollo local, `LOCAL_DEV_ADMIN_ENABLED=true` permite admin implicito sin romper el flujo local.
+- En produccion debe activarse `RBAC_ENFORCED=true` y desactivar admin implicito.
 - Secret management mediante Kubernetes Secrets en desarrollo y External Secrets/Vault en produccion.
 - Rate limiting en gateway.
 - Auditoria centralizada para acciones de sistema, infraestructura y seguridad.

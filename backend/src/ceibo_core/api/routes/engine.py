@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ceibo_core.ai_engine import ceibo_engine
+from ceibo_core.core.security import require_permission
 from ceibo_core.db.session import get_db
 from ceibo_core.models.schemas import (
     DatasetVersionRecord,
@@ -20,6 +21,7 @@ from ceibo_core.models.schemas import (
     ModelVersionRequest,
     QloraTrainingRequest,
     RegistryOverview,
+    SecurityAction,
     TeacherReviewRequest,
     TeacherReviewResponse,
     TeacherStatus,
@@ -51,7 +53,9 @@ async def engine_status() -> EngineStatus:
 
 
 @router.post("/evaluations/run", response_model=EvaluationSuiteReport)
-async def run_evaluation_suite() -> EvaluationSuiteReport:
+async def run_evaluation_suite(
+    _auth=Depends(require_permission(SecurityAction.RUN_EVALUATION)),
+) -> EvaluationSuiteReport:
     return await evaluation_harness_service.run()
 
 
@@ -83,7 +87,10 @@ async def registry_overview(
 
 
 @router.post("/registry/bootstrap", response_model=RegistryOverview)
-async def bootstrap_registry(db: AsyncSession = Depends(get_db)) -> RegistryOverview:
+async def bootstrap_registry(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_permission(SecurityAction.MANAGE_REGISTRY)),
+) -> RegistryOverview:
     return await model_registry_service.bootstrap_seed_registry(db)
 
 
@@ -99,6 +106,7 @@ async def list_dataset_versions(
 async def register_dataset_version(
     request: DatasetVersionRequest,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_permission(SecurityAction.MANAGE_REGISTRY)),
 ) -> DatasetVersionRecord:
     try:
         return await model_registry_service.register_dataset(db, request)
@@ -118,6 +126,7 @@ async def list_model_versions(
 async def register_model_version(
     request: ModelVersionRequest,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_permission(SecurityAction.MANAGE_REGISTRY)),
 ) -> ModelVersionRecord:
     return await model_registry_service.register_model(db, request)
 
@@ -126,6 +135,7 @@ async def register_model_version(
 async def promote_model_version(
     request: ModelPromotionRequest,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_permission(SecurityAction.PROMOTE_MODEL)),
 ) -> ModelPromotionDecision:
     return await model_registry_service.promote_model(db, request)
 
@@ -250,7 +260,10 @@ async def teacher_synthetic_examples(
 
 
 @router.post("/training/qlora/preflight", response_model=TrainingRunnerReport)
-async def qlora_preflight(request: QloraTrainingRequest) -> TrainingRunnerReport:
+async def qlora_preflight(
+    request: QloraTrainingRequest,
+    _auth=Depends(require_permission(SecurityAction.START_TRAINING)),
+) -> TrainingRunnerReport:
     try:
         return training_runner_service.preflight(request)
     except Exception as exc:
@@ -258,7 +271,10 @@ async def qlora_preflight(request: QloraTrainingRequest) -> TrainingRunnerReport
 
 
 @router.post("/training/qlora/start", response_model=TrainingRunnerReport)
-async def qlora_start(request: QloraTrainingRequest) -> TrainingRunnerReport:
+async def qlora_start(
+    request: QloraTrainingRequest,
+    _auth=Depends(require_permission(SecurityAction.START_TRAINING)),
+) -> TrainingRunnerReport:
     try:
         return training_runner_service.start(request)
     except Exception as exc:

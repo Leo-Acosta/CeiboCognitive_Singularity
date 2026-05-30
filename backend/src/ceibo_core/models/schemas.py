@@ -25,6 +25,37 @@ class TaskStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class UserRole(StrEnum):
+    ADMIN = "admin"
+    OPERATOR = "operator"
+    RESEARCHER = "researcher"
+    VIEWER = "viewer"
+
+
+class SecurityAction(StrEnum):
+    READ_STATUS = "read_status"
+    RUN_EVALUATION = "run_evaluation"
+    MANAGE_REGISTRY = "manage_registry"
+    PROMOTE_MODEL = "promote_model"
+    START_TRAINING = "start_training"
+    CREATE_TASK = "create_task"
+    RUN_INFRA_TASK = "run_infra_task"
+    RUN_SYSTEM_TASK = "run_system_task"
+
+
+class AuthContext(BaseModel):
+    user_id: str
+    role: UserRole
+    local_dev: bool = False
+
+
+class SecurityPolicyStatus(BaseModel):
+    rbac_enforced: bool
+    local_dev_admin_enabled: bool
+    effective_user: AuthContext
+    role_permissions: dict[str, list[str]]
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     user_id: str = "local-user"

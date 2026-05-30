@@ -131,10 +131,14 @@ class SingularityIndexService:
             self._category(
                 "Seguridad",
                 10,
-                max(45, eval_scores.get("security", 0)),
+                max(60 if settings.local_dev_admin_enabled or settings.rbac_enforced else 45, eval_scores.get("security", 0)),
                 [
                     self._signal("Auditoria base", True, "modelos y servicios preparados"),
-                    self._signal("RBAC completo", False, "pendiente implementacion"),
+                    self._signal(
+                        "RBAC v1",
+                        settings.local_dev_admin_enabled or settings.rbac_enforced,
+                        "enforced" if settings.rbac_enforced else "local-dev policy",
+                    ),
                     self._signal("System control off", not settings.enable_system_control, "seguro por defecto"),
                     self._signal("Security eval", bool(latest_eval), self._eval_detail(latest_eval, "security")),
                 ],

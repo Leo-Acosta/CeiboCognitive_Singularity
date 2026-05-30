@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="change-me-in-production", min_length=16)
     jwt_issuer: str = "ceibo-core"
     access_token_minutes: int = 60
+    rbac_enforced: bool = False
+    local_dev_admin_enabled: bool = True
 
     enable_system_control: bool = False
     enable_desktop_automation: bool = False

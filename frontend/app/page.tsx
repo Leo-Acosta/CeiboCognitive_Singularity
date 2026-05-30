@@ -63,6 +63,17 @@ type CoreStatus = {
   core_directive: string;
 };
 
+type SecurityPolicyStatus = {
+  rbac_enforced: boolean;
+  local_dev_admin_enabled: boolean;
+  effective_user: {
+    user_id: string;
+    role: "admin" | "operator" | "researcher" | "viewer";
+    local_dev: boolean;
+  };
+  role_permissions: Record<string, string[]>;
+};
+
 type SingularitySignal = {
   name: string;
   active: boolean;
@@ -277,6 +288,7 @@ export default function Home() {
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [coreStatus, setCoreStatus] = useState<CoreStatus | null>(null);
+  const [securityStatus, setSecurityStatus] = useState<SecurityPolicyStatus | null>(null);
   const [singularityIndex, setSingularityIndex] = useState<SingularityIndex | null>(null);
   const [singularityHistory, setSingularityHistory] = useState<SingularitySnapshotRecord[]>([]);
   const [isCapturingSnapshot, setIsCapturingSnapshot] = useState(false);
@@ -378,6 +390,7 @@ export default function Home() {
     try {
       const [
         statusResponse,
+        securityResponse,
         singularityResponse,
         singularityHistoryResponse,
         tasksResponse,
@@ -388,6 +401,7 @@ export default function Home() {
         registryResponse,
       ] = await Promise.all([
         fetch(`${apiUrl}/api/v1/status`),
+        fetch(`${apiUrl}/api/v1/status/security`),
         fetch(`${apiUrl}/api/v1/status/singularity-index`),
         fetch(`${apiUrl}/api/v1/status/singularity-index/history?limit=6`),
         fetch(`${apiUrl}/api/v1/tasks`),
@@ -399,6 +413,9 @@ export default function Home() {
       ]);
       if (statusResponse.ok) {
         setCoreStatus((await statusResponse.json()) as CoreStatus);
+      }
+      if (securityResponse.ok) {
+        setSecurityStatus((await securityResponse.json()) as SecurityPolicyStatus);
       }
       if (singularityResponse.ok) {
         setSingularityIndex((await singularityResponse.json()) as SingularityIndex);
@@ -1306,6 +1323,23 @@ export default function Home() {
                         <p className="mt-2 line-clamp-1 text-sm font-semibold text-white">
                           {registryOverview?.active_model?.name ?? "sin promover"}
                         </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-white/7 px-3 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                            RBAC
+                          </p>
+                          <p className="mt-1 text-sm text-slate-300">
+                            {securityStatus?.effective_user.user_id ?? "sync"} /{" "}
+                            {securityStatus?.effective_user.role ?? "sync"}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-white/8 px-2.5 py-1 text-xs text-slate-300">
+                          {securityStatus?.rbac_enforced ? "enforced" : "local-dev"}
+                        </span>
                       </div>
                     </div>
 
