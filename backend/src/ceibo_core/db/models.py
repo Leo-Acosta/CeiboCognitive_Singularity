@@ -94,6 +94,28 @@ class OrchestrationTrace(Base):
     )
 
 
+class LongRunningJob(Base):
+    __tablename__ = "long_running_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: str(uuid4()))
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    title: Mapped[str] = mapped_column(String(240), index=True)
+    status: Mapped[str] = mapped_column(String(40), index=True)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    current_step: Mapped[str] = mapped_column(String(160), default="queued")
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    job_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

@@ -18,6 +18,7 @@ from ceibo_core.models.schemas import (
 )
 from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
+from ceibo_core.services.jobs import long_running_job_service
 from ceibo_core.services.model_registry import model_registry_service
 from ceibo_core.services.orchestration import orchestration_service
 from ceibo_core.services.training_data import training_data_service
@@ -39,6 +40,7 @@ class SingularityIndexService:
         eval_scores = latest_eval.category_scores if latest_eval else {}
         registry_overview = await model_registry_service.overview(None, limit=10)
         orchestration_traces = await orchestration_service.recent(None, limit=5)
+        long_running_jobs = await long_running_job_service.recent(None, limit=5)
         project_root = training_data_service.project_root()
         curated_dataset = project_root / "training" / "datasets" / "ceibo_instructions.curated.jsonl"
 
@@ -95,9 +97,14 @@ class SingularityIndexService:
             self._category(
                 "Uso de herramientas",
                 10,
-                45,
+                55 if long_running_jobs else 45,
                 [
                     self._signal("API de tareas", True, "task queue local"),
+                    self._signal(
+                        "Long-running Jobs",
+                        bool(long_running_jobs),
+                        f"{len(long_running_jobs)} jobs recientes",
+                    ),
                     self._signal("Sandbox operativo", not settings.enable_system_control, "modo seguro por defecto"),
                 ],
             ),

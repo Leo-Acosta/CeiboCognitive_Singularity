@@ -15,7 +15,10 @@ from ceibo_core.models.schemas import (
     DatasetVersionRequest,
     DatasetCurationRequest,
     HardwareProfile,
+    JobKind,
+    JobStatus,
     KnowledgeItemRequest,
+    LongRunningJobRequest,
     ModelRecommendationRequest,
     ModelPromotionRequest,
     ModelVersionRequest,
@@ -35,6 +38,7 @@ from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import EvaluationHarnessService
+from ceibo_core.services.jobs import long_running_job_service
 from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.model_catalog import model_catalog_service
 from ceibo_core.services.model_registry import ModelRegistryService
@@ -107,6 +111,36 @@ async def test_task_store_keeps_local_recent_tasks_when_persistence_is_disabled(
 
     assert tasks[0].goal == request.goal
     assert tasks[0].assigned_agent == AgentRole.AUTOMATION
+
+
+@pytest.mark.asyncio
+async def test_long_running_job_runs_to_completion(monkeypatch):
+    monkeypatch.setattr("ceibo_core.services.jobs.settings.persistence_enabled", False)
+
+    record = await long_running_job_service.enqueue(
+        None,
+        LongRunningJobRequest(
+            kind=JobKind.TASK,
+            title="procesar auditoria larga",
+            user_id="tester",
+            metadata={"source": "test"},
+        ),
+    )
+    completed = await long_running_job_service.run(None, record.job_id)
+    recent = await long_running_job_service.recent(None, limit=1)
+
+    assert completed.status == JobStatus.COMPLETED
+    assert completed.progress == 100
+    assert completed.result["kind"] == "task"
+    assert recent[0].job_id == record.job_id
+
+
+@pytest.mark.asyncio
+async def test_long_running_job_reports_missing_job(monkeypatch):
+    monkeypatch.setattr("ceibo_core.services.jobs.settings.persistence_enabled", False)
+
+    with pytest.raises(ValueError):
+        await long_running_job_service.run(None, "missing-job")
 
 
 @pytest.mark.asyncio

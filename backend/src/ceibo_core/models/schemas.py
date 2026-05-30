@@ -25,6 +25,21 @@ class TaskStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class JobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class JobKind(StrEnum):
+    GENERIC = "generic"
+    TASK = "task"
+    EVALUATION = "evaluation"
+    TRAINING = "training"
+
+
 class UserRole(StrEnum):
     ADMIN = "admin"
     OPERATOR = "operator"
@@ -142,6 +157,30 @@ class OrchestrationTraceRecord(BaseModel):
     route_reason: str
     steps: list[OrchestrationStep]
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class LongRunningJobRequest(BaseModel):
+    kind: JobKind = JobKind.GENERIC
+    title: str = Field(min_length=1, max_length=240)
+    user_id: str = "local-user"
+    task_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class LongRunningJobRecord(BaseModel):
+    job_id: str = Field(default_factory=lambda: str(uuid4()))
+    kind: JobKind
+    title: str
+    status: JobStatus = JobStatus.QUEUED
+    progress: int = Field(default=0, ge=0, le=100)
+    current_step: str = "queued"
+    user_id: str = "local-user"
+    task_id: str | None = None
+    result: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class MemoryRememberRequest(BaseModel):

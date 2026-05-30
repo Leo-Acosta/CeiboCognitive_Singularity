@@ -48,6 +48,18 @@ type TaskRecord = {
   created_at: string;
 };
 
+type LongRunningJobRecord = {
+  job_id: string;
+  kind: "generic" | "task" | "evaluation" | "training";
+  title: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  progress: number;
+  current_step: string;
+  task_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type OrchestrationStep = {
   agent: string;
   action: string;
@@ -332,6 +344,7 @@ export default function Home() {
   const [memoryCount, setMemoryCount] = useState(0);
   const [taskGoal, setTaskGoal] = useState("");
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [longRunningJobs, setLongRunningJobs] = useState<LongRunningJobRecord[]>([]);
   const [orchestrationTraces, setOrchestrationTraces] = useState<OrchestrationTraceRecord[]>([]);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [coreStatus, setCoreStatus] = useState<CoreStatus | null>(null);
@@ -447,6 +460,7 @@ export default function Home() {
         singularityResponse,
         singularityHistoryResponse,
         tasksResponse,
+        jobsResponse,
         orchestrationResponse,
         examplesResponse,
         statsResponse,
@@ -462,6 +476,7 @@ export default function Home() {
         fetch(`${apiUrl}/api/v1/status/singularity-index`),
         fetch(`${apiUrl}/api/v1/status/singularity-index/history?limit=6`),
         fetch(`${apiUrl}/api/v1/tasks`),
+        fetch(`${apiUrl}/api/v1/tasks/jobs?limit=4`),
         fetch(`${apiUrl}/api/v1/agents/orchestration/recent?limit=4`),
         fetch(`${apiUrl}/api/v1/engine/training/examples?limit=5`),
         fetch(`${apiUrl}/api/v1/engine/training/stats`),
@@ -494,6 +509,9 @@ export default function Home() {
       }
       if (tasksResponse.ok) {
         setTasks((await tasksResponse.json()) as TaskRecord[]);
+      }
+      if (jobsResponse.ok) {
+        setLongRunningJobs((await jobsResponse.json()) as LongRunningJobRecord[]);
       }
       if (orchestrationResponse.ok) {
         setOrchestrationTraces(
@@ -733,6 +751,9 @@ export default function Home() {
           goal,
           user_id: "local-user",
           priority: 5,
+          metadata: {
+            long_running: /entrena|training|qlora|evaluation|evaluacion/i.test(goal),
+          },
         }),
       });
       if (!response.ok) {
@@ -1797,6 +1818,38 @@ export default function Home() {
                         >
                           {step.action}: {step.agent.replace("_", " ")}
                         </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                          Long-running Jobs
+                        </p>
+                        <p className="mt-1 text-sm text-slate-300">
+                          {longRunningJobs[0]?.current_step ?? "sin jobs activos"}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-violet-300/10 px-2.5 py-1 text-xs text-violet-100">
+                        {longRunningJobs.length} tracked
+                      </span>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {longRunningJobs.slice(0, 3).map((job) => (
+                        <div key={job.job_id}>
+                          <div className="flex items-center justify-between gap-3 text-xs">
+                            <span className="line-clamp-1 text-slate-300">{job.title}</span>
+                            <span className="text-slate-500">{job.progress}%</span>
+                          </div>
+                          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
+                            <div
+                              className="h-full rounded-full bg-violet-300 transition-all"
+                              style={{ width: `${job.progress}%` }}
+                            />
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>
