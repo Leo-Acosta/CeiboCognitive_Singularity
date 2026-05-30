@@ -378,3 +378,26 @@ class CoreStatus(BaseModel):
     engine_model_id: str
     engine_mode: str
     core_directive: str
+
+
+class SingularitySignal(BaseModel):
+    name: str
+    active: bool
+    detail: str
+
+
+class SingularityCategoryScore(BaseModel):
+    category: str
+    weight: int = Field(ge=0, le=100)
+    score: int = Field(ge=0, le=100)
+    weighted_score: float = Field(ge=0)
+    signals: list[SingularitySignal] = Field(default_factory=list)
+
+
+class SingularityIndex(BaseModel):
+    index: int = Field(ge=0, le=100)
+    maturity_level: str
+    summary: str
+    categories: list[SingularityCategoryScore]
+    next_steps: list[str] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

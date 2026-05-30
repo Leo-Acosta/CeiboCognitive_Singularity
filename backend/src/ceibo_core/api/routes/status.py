@@ -3,8 +3,9 @@ from fastapi import APIRouter
 from ceibo_core.agents.registry import agent_registry
 from ceibo_core.ai_engine import ceibo_engine
 from ceibo_core.core.config import settings
-from ceibo_core.models.schemas import CoreStatus
+from ceibo_core.models.schemas import CoreStatus, SingularityIndex
 from ceibo_core.services.memory import memory_service
+from ceibo_core.services.singularity_index import singularity_index_service
 
 router = APIRouter(prefix="/status", tags=["status"])
 
@@ -28,3 +29,8 @@ async def core_status() -> CoreStatus:
         engine_mode=engine_status.mode,
         core_directive=engine_status.core_directive,
     )
+
+
+@router.get("/singularity-index", response_model=SingularityIndex)
+async def singularity_index() -> SingularityIndex:
+    return await singularity_index_service.calculate()

@@ -63,6 +63,29 @@ type CoreStatus = {
   core_directive: string;
 };
 
+type SingularitySignal = {
+  name: string;
+  active: boolean;
+  detail: string;
+};
+
+type SingularityCategoryScore = {
+  category: string;
+  weight: number;
+  score: number;
+  weighted_score: number;
+  signals: SingularitySignal[];
+};
+
+type SingularityIndex = {
+  index: number;
+  maturity_level: string;
+  summary: string;
+  categories: SingularityCategoryScore[];
+  next_steps: string[];
+  updated_at: string;
+};
+
 type TrainingExample = {
   example_id: string;
   instruction: string;
@@ -182,6 +205,7 @@ export default function Home() {
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [coreStatus, setCoreStatus] = useState<CoreStatus | null>(null);
+  const [singularityIndex, setSingularityIndex] = useState<SingularityIndex | null>(null);
   const [trainingExamples, setTrainingExamples] = useState<TrainingExample[]>([]);
   const [trainingStats, setTrainingStats] = useState<TrainingDatasetStats | null>(null);
   const [correction, setCorrection] = useState("");
@@ -242,32 +266,18 @@ export default function Home() {
     [coreStatus, trainingStats],
   );
 
-  const singularityProgress = useMemo(() => {
-    const agentsScore = Math.min(coreStatus?.agents_online ?? 8, 8) * 4;
-    const datasetScore = Math.min(trainingStats?.total_examples ?? 0, 100) * 0.22;
-    const memoryScore = coreStatus?.memory_backend ? 8 : 0;
-    const teacherScore = teacherStatus?.available ? 10 : 0;
-    const trainingScore =
-      trainingRun?.status === "completed"
-        ? 20
-        : trainingRun?.status === "running"
-          ? 12
-          : trainingRun
-            ? 6
-            : 0;
+  const singularityProgress = singularityIndex?.index ?? 0;
 
-    return Math.min(
-      100,
-      Math.round(18 + agentsScore + datasetScore + memoryScore + teacherScore + trainingScore),
-    );
-  }, [coreStatus, teacherStatus, trainingRun, trainingStats]);
-
-  const singularityMilestones = [
-    { label: "Orquestador", value: coreStatus ? "online" : "sync" },
-    { label: "Dataset", value: `${trainingStats?.total_examples ?? 0} ejemplos` },
-    { label: "Teacher IA", value: teacherStatus?.available ? teacherStatus.model : "offline" },
-    { label: "QLoRA", value: trainingRun?.status ?? "idle" },
-  ];
+  const singularityMilestones = useMemo(() => {
+    const scoreFor = (category: string) =>
+      singularityIndex?.categories.find((item) => item.category === category)?.score ?? 0;
+    return [
+      { label: "Multiagente", value: `${scoreFor("Capacidad multiagente")}/100` },
+      { label: "Memoria", value: `${scoreFor("Memoria")}/100` },
+      { label: "Training", value: `${scoreFor("Entrenamiento propio")}/100` },
+      { label: "Seguridad", value: `${scoreFor("Seguridad")}/100` },
+    ];
+  }, [singularityIndex]);
 
   useEffect(() => {
     void refreshOperations();
@@ -277,12 +287,14 @@ export default function Home() {
     try {
       const [
         statusResponse,
+        singularityResponse,
         tasksResponse,
         examplesResponse,
         statsResponse,
         teacherStatusResponse,
       ] = await Promise.all([
         fetch(`${apiUrl}/api/v1/status`),
+        fetch(`${apiUrl}/api/v1/status/singularity-index`),
         fetch(`${apiUrl}/api/v1/tasks`),
         fetch(`${apiUrl}/api/v1/engine/training/examples?limit=5`),
         fetch(`${apiUrl}/api/v1/engine/training/stats`),
@@ -290,6 +302,9 @@ export default function Home() {
       ]);
       if (statusResponse.ok) {
         setCoreStatus((await statusResponse.json()) as CoreStatus);
+      }
+      if (singularityResponse.ok) {
+        setSingularityIndex((await singularityResponse.json()) as SingularityIndex);
       }
       if (tasksResponse.ok) {
         setTasks((await tasksResponse.json()) as TaskRecord[]);
@@ -792,9 +807,13 @@ export default function Home() {
                       <h3 className="mt-1 text-2xl font-semibold text-white">
                         {singularityProgress}% hacia la Singularidad
                       </h3>
+                      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                        {singularityIndex?.summary ??
+                          "Esperando metricas reales del backend para calcular el indice."}
+                      </p>
                     </div>
                     <span className="rounded-full border border-[#8be9ff]/25 bg-[#8be9ff]/10 px-4 py-2 text-sm font-medium text-[#8be9ff]">
-                      contador porcentual
+                      {singularityIndex?.maturity_level ?? "sync"}
                     </span>
                   </div>
 
@@ -817,6 +836,30 @@ export default function Home() {
                         <p className="mt-2 line-clamp-1 text-sm font-semibold text-slate-100">
                           {item.value}
                         </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    {(singularityIndex?.categories ?? []).slice(0, 6).map((item) => (
+                      <div
+                        key={item.category}
+                        className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="line-clamp-1 text-sm font-medium text-slate-200">
+                            {item.category}
+                          </p>
+                          <span className="rounded-full bg-white/8 px-2.5 py-1 text-xs text-slate-300">
+                            {item.score}
+                          </span>
+                        </div>
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                          <div
+                            className="h-full rounded-full bg-[#8be9ff]"
+                            style={{ width: `${item.score}%` }}
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>

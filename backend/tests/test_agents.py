@@ -25,6 +25,7 @@ from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.memory import memory_service
 from ceibo_core.services.model_catalog import model_catalog_service
+from ceibo_core.services.singularity_index import SingularityIndexService
 from ceibo_core.services.tasks import task_store
 from ceibo_core.services.teacher_agent import TeacherAgentService
 from ceibo_core.services.training_data import TrainingDataService
@@ -262,6 +263,17 @@ def test_training_runner_prefers_local_qlora_venv(monkeypatch):
     monkeypatch.setattr(Path, "exists", lambda self: str(self).endswith("python.exe"))
 
     assert service.runner_python().endswith(".venv-qlora\\Scripts\\python.exe")
+
+
+@pytest.mark.asyncio
+async def test_singularity_index_returns_weighted_progress():
+    report = await SingularityIndexService().calculate()
+
+    assert 0 <= report.index <= 100
+    assert report.maturity_level in {"seed", "foundation", "operational", "advanced"}
+    assert sum(category.weight for category in report.categories) == 100
+    assert any(category.category == "Entrenamiento propio" for category in report.categories)
+    assert report.next_steps
 
 
 @pytest.mark.asyncio
