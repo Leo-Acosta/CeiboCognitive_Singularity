@@ -1,0 +1,25 @@
+{
+  "project": "Project CeiboCore",
+  "method": "pretraining_from_scratch",
+  "model_name": "tiny-ceibo-scratch",
+  "dataset": "training/datasets/ceibo_pretrain.jsonl",
+  "output_model": "models/tiny-ceibo-scratch-v1",
+  "tokenizer": {
+    "type": "bpe",
+    "vocab_size": 16000
+  },
+  "architecture": {
+    "hidden_size": 768,
+    "num_hidden_layers": 8,
+    "num_attention_heads": 12,
+    "intermediate_size": 2048,
+    "max_position_embeddings": 2048
+  },
+  "training": {
+    "learning_rate": 0.0003,
+    "batch_size": 2,
+    "gradient_accumulation_steps": 16,
+    "epochs": 5
+  },
+  "notes": "Research/learning config. A competitive model from scratch requires orders of magnitude more data and compute."
+}

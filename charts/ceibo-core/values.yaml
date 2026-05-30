@@ -1,0 +1,52 @@
+global:
+  imagePullPolicy: IfNotPresent
+
+api:
+  image: ceibo-core-api:latest
+  replicas: 2
+  port: 8000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+frontend:
+  image: ceibo-core-frontend:latest
+  replicas: 1
+  port: 3000
+
+ingress:
+  enabled: true
+  className: traefik
+  host: ceibo.local
+  tls:
+    enabled: false
+    secretName: ceibo-core-tls
+
+config:
+  environment: production
+  defaultLlmProvider: ceibo_local
+  qdrantUrl: http://qdrant.ceibo-data.svc.cluster.local:6333
+  redisUrl: redis://redis.ceibo-data.svc.cluster.local:6379/0
+  natsUrl: nats://nats.ceibo-data.svc.cluster.local:4222
+  persistenceEnabled: "true"
+  eventBusEnabled: "true"
+  memoryVectorEnabled: "true"
+  memoryCollectionName: ceibo_memories
+  embeddingsProvider: local
+  ceiboEngineModelId: ceibo-core-local-v0
+  ceiboEngineMode: rules+rag
+  ceiboTrainingDatasetPath: training/datasets/ceibo_instructions.jsonl
+  ceiboCoreDirective: Ayudar y ensenar a su usuario principal, facilitando cada requerimiento con respuestas claras, utiles, accionables y adaptadas a lo que necesite.
+  teacherProvider: ollama
+  teacherBaseUrl: http://ollama.ceibo-ai.svc.cluster.local:11434
+  teacherModel: mistral:latest
+  teacherTimeoutSeconds: "600"
+
+secrets:
+  jwtSecret: change-me-in-production
+  postgresPassword: ceibo_dev_password
+  openaiApiKey: ""

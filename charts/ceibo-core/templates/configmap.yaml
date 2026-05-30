@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ceibo-core-config
+  labels:
+    {{- include "ceibo-core.labels" . | nindent 4 }}
+data:
+  APP_NAME: "CEIBO CORE"
+  ENVIRONMENT: {{ .Values.config.environment | quote }}
+  DEFAULT_LLM_PROVIDER: {{ .Values.config.defaultLlmProvider | quote }}
+  QDRANT_URL: {{ .Values.config.qdrantUrl | quote }}
+  REDIS_URL: {{ .Values.config.redisUrl | quote }}
+  NATS_URL: {{ .Values.config.natsUrl | quote }}
+  PERSISTENCE_ENABLED: {{ .Values.config.persistenceEnabled | quote }}
+  EVENT_BUS_ENABLED: {{ .Values.config.eventBusEnabled | quote }}
+  MEMORY_VECTOR_ENABLED: {{ .Values.config.memoryVectorEnabled | quote }}
+  MEMORY_COLLECTION_NAME: {{ .Values.config.memoryCollectionName | quote }}
+  EMBEDDINGS_PROVIDER: {{ .Values.config.embeddingsProvider | quote }}
+  CEIBO_ENGINE_MODEL_ID: {{ .Values.config.ceiboEngineModelId | quote }}
+  CEIBO_ENGINE_MODE: {{ .Values.config.ceiboEngineMode | quote }}
+  CEIBO_TRAINING_DATASET_PATH: {{ .Values.config.ceiboTrainingDatasetPath | quote }}
+  CEIBO_CORE_DIRECTIVE: {{ .Values.config.ceiboCoreDirective | quote }}
+  TEACHER_PROVIDER: {{ .Values.config.teacherProvider | quote }}
+  TEACHER_BASE_URL: {{ .Values.config.teacherBaseUrl | quote }}
+  TEACHER_MODEL: {{ .Values.config.teacherModel | quote }}
+  TEACHER_TIMEOUT_SECONDS: {{ .Values.config.teacherTimeoutSeconds | quote }}

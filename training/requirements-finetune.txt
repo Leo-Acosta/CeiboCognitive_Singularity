@@ -1,0 +1,8 @@
+# Recommended in Linux/WSL with NVIDIA CUDA for real training.
+accelerate
+datasets
+peft
+sentencepiece
+torch
+transformers
+trl

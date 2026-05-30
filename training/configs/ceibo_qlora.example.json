@@ -1,0 +1,13 @@
+{
+  "project": "Project CeiboCore",
+  "base_model": "choose-local-base-model",
+  "method": "qlora",
+  "dataset": "training/datasets/ceibo_instructions.jsonl",
+  "output_model": "models/ceibo-core-local-v1",
+  "max_seq_length": 4096,
+  "lora_rank": 16,
+  "lora_alpha": 32,
+  "learning_rate": 0.0002,
+  "epochs": 3,
+  "notes": "Example only. Select tooling later: transformers+peft, Axolotl, Unsloth, llama.cpp adapters, or vLLM-compatible pipeline."
+}

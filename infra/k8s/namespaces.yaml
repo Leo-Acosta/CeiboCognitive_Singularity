@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ceibo-core
+  labels:
+    app.kubernetes.io/name: ceibo-core
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ceibo-observability
+  labels:
+    app.kubernetes.io/name: ceibo-observability
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ceibo-data
+  labels:
+    app.kubernetes.io/name: ceibo-data
