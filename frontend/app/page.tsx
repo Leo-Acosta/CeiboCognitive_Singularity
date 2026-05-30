@@ -86,6 +86,14 @@ type AuditEventRecord = {
   created_at: string;
 };
 
+type PersistenceHealth = {
+  enabled: boolean;
+  available: boolean;
+  database_url_safe: string;
+  tables: string[];
+  error: string | null;
+};
+
 type SingularitySignal = {
   name: string;
   active: boolean;
@@ -302,6 +310,7 @@ export default function Home() {
   const [coreStatus, setCoreStatus] = useState<CoreStatus | null>(null);
   const [securityStatus, setSecurityStatus] = useState<SecurityPolicyStatus | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEventRecord[]>([]);
+  const [persistenceHealth, setPersistenceHealth] = useState<PersistenceHealth | null>(null);
   const [singularityIndex, setSingularityIndex] = useState<SingularityIndex | null>(null);
   const [singularityHistory, setSingularityHistory] = useState<SingularitySnapshotRecord[]>([]);
   const [isCapturingSnapshot, setIsCapturingSnapshot] = useState(false);
@@ -403,6 +412,7 @@ export default function Home() {
     try {
       const [
         statusResponse,
+        persistenceResponse,
         securityResponse,
         auditResponse,
         singularityResponse,
@@ -415,6 +425,7 @@ export default function Home() {
         registryResponse,
       ] = await Promise.all([
         fetch(`${apiUrl}/api/v1/status`),
+        fetch(`${apiUrl}/health/persistence`),
         fetch(`${apiUrl}/api/v1/status/security`),
         fetch(`${apiUrl}/api/v1/status/audit?limit=6`),
         fetch(`${apiUrl}/api/v1/status/singularity-index`),
@@ -428,6 +439,9 @@ export default function Home() {
       ]);
       if (statusResponse.ok) {
         setCoreStatus((await statusResponse.json()) as CoreStatus);
+      }
+      if (persistenceResponse.ok) {
+        setPersistenceHealth((await persistenceResponse.json()) as PersistenceHealth);
       }
       if (securityResponse.ok) {
         setSecurityStatus((await securityResponse.json()) as SecurityPolicyStatus);
@@ -1373,6 +1387,32 @@ export default function Home() {
                         </div>
                         <span className="rounded-full bg-white/8 px-2.5 py-1 text-xs text-slate-300">
                           {securityStatus?.rbac_enforced ? "enforced" : "local-dev"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-white/7 px-3 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                            Persistencia
+                          </p>
+                          <p className="mt-1 line-clamp-1 text-sm text-slate-300">
+                            {persistenceHealth?.database_url_safe ?? "sync"}
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs ${
+                            persistenceHealth?.available
+                              ? "bg-emerald-300/10 text-emerald-200"
+                              : "bg-amber-300/10 text-amber-200"
+                          }`}
+                        >
+                          {persistenceHealth?.available
+                            ? `${persistenceHealth.tables.length} tables`
+                            : persistenceHealth?.enabled
+                              ? "offline"
+                              : "local"}
                         </span>
                       </div>
                     </div>

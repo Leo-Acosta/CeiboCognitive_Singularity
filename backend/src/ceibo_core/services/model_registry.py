@@ -76,11 +76,16 @@ class ModelRegistryService:
         path = self._resolve_project_path(request.path)
         if not path.exists():
             raise ValueError(f"Dataset not found: {request.path}")
+        sha256 = self._sha256(path)
+        existing = await self._find_dataset_by_hash(db, sha256)
+        if existing is not None:
+            return existing
+
         record = DatasetVersionRecord(
             version_id=f"ds-{uuid4().hex[:12]}",
             name=request.name,
             path=str(path),
-            sha256=self._sha256(path),
+            sha256=sha256,
             examples=self._count_jsonl(path),
             source=request.source,
             metadata=request.metadata,
@@ -113,6 +118,10 @@ class ModelRegistryService:
         db: AsyncSession | None,
         request: ModelVersionRequest,
     ) -> ModelVersionRecord:
+        existing = await self._find_model_by_fingerprint(db, request)
+        if existing is not None:
+            return existing
+
         if request.status == ModelVersionStatus.ACTIVE:
             await self._deactivate_active_model(db)
 
@@ -232,6 +241,64 @@ class ModelRegistryService:
         except SQLAlchemyError as exc:
             logger.warning("model_version_list_failed", error=str(exc))
             return list(self._fallback_models)[:limit]
+
+    async def _find_dataset_by_hash(
+        self,
+        db: AsyncSession | None,
+        sha256: str,
+    ) -> DatasetVersionRecord | None:
+        fallback = next(
+            (dataset for dataset in self._fallback_datasets if dataset.sha256 == sha256),
+            None,
+        )
+        if fallback is not None:
+            return fallback
+        if not settings.persistence_enabled or db is None:
+            return None
+        try:
+            result = await db.execute(select(DatasetVersion).where(DatasetVersion.sha256 == sha256))
+            record = result.scalars().first()
+            return self._dataset_from_record(record) if record else None
+        except SQLAlchemyError as exc:
+            logger.warning("dataset_version_lookup_failed", error=str(exc))
+            return None
+
+    async def _find_model_by_fingerprint(
+        self,
+        db: AsyncSession | None,
+        request: ModelVersionRequest,
+    ) -> ModelVersionRecord | None:
+        fallback = next(
+            (
+                model
+                for model in self._fallback_models
+                if model.name == request.name
+                and model.base_model == request.base_model
+                and model.adapter_path == request.adapter_path
+                and model.dataset_version_id == request.dataset_version_id
+                and model.status == request.status
+            ),
+            None,
+        )
+        if fallback is not None:
+            return fallback
+        if not settings.persistence_enabled or db is None:
+            return None
+        try:
+            result = await db.execute(
+                select(ModelVersion).where(
+                    ModelVersion.name == request.name,
+                    ModelVersion.base_model == request.base_model,
+                    ModelVersion.adapter_path == request.adapter_path,
+                    ModelVersion.dataset_version_id == request.dataset_version_id,
+                    ModelVersion.status == request.status.value,
+                )
+            )
+            record = result.scalars().first()
+            return self._model_from_record(record) if record else None
+        except SQLAlchemyError as exc:
+            logger.warning("model_version_lookup_failed", error=str(exc))
+            return None
 
     def _promotion_checks(
         self,

@@ -68,6 +68,14 @@ class AuditEventRecord(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class PersistenceHealth(BaseModel):
+    enabled: bool
+    available: bool
+    database_url_safe: str
+    tables: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     user_id: str = "local-user"

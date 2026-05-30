@@ -7,6 +7,7 @@ import pytest
 from ceibo_core.agents.registry import agent_registry
 from ceibo_core.ai_engine import ceibo_engine
 from ceibo_core.core.security import assert_permission, task_action_for_goal
+from ceibo_core.db.session import persistence_health
 from ceibo_core.models.schemas import (
     AgentRole,
     AuthContext,
@@ -377,6 +378,63 @@ async def test_model_registry_registers_dataset_and_active_model(monkeypatch):
     assert model.status == ModelVersionStatus.ACTIVE
     assert overview.active_model is not None
     assert overview.active_model.name == "ceibo-test"
+
+
+@pytest.mark.asyncio
+async def test_model_registry_is_idempotent_for_same_dataset_and_model(monkeypatch):
+    service = ModelRegistryService()
+    monkeypatch.setattr("ceibo_core.services.model_registry.settings.persistence_enabled", False)
+
+    first_dataset = await service.register_dataset(
+        None,
+        DatasetVersionRequest(
+            name="seed",
+            path="training/datasets/ceibo_seed.jsonl",
+            source="test",
+        ),
+    )
+    second_dataset = await service.register_dataset(
+        None,
+        DatasetVersionRequest(
+            name="seed-copy",
+            path="training/datasets/ceibo_seed.jsonl",
+            source="test",
+        ),
+    )
+    first_model = await service.register_model(
+        None,
+        ModelVersionRequest(
+            name="ceibo-test",
+            base_model="ceibo_local",
+            dataset_version_id=first_dataset.version_id,
+        ),
+    )
+    second_model = await service.register_model(
+        None,
+        ModelVersionRequest(
+            name="ceibo-test",
+            base_model="ceibo_local",
+            dataset_version_id=first_dataset.version_id,
+        ),
+    )
+    overview = await service.overview(None)
+
+    assert first_dataset.version_id == second_dataset.version_id
+    assert first_model.version_id == second_model.version_id
+    assert len(overview.datasets) == 1
+    assert len(overview.models) == 1
+
+
+@pytest.mark.asyncio
+async def test_persistence_health_reports_disabled_state(monkeypatch):
+    monkeypatch.setattr("ceibo_core.db.session.settings.persistence_enabled", False)
+
+    health = await persistence_health()
+
+    assert health.enabled is False
+    assert health.available is False
+    assert health.error == "persistence disabled"
+    assert "***:***@" in health.database_url_safe
 
 
 @pytest.mark.asyncio
