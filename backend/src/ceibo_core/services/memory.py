@@ -1,16 +1,41 @@
 from collections import defaultdict, deque
 from datetime import UTC, datetime
+import re
 from typing import Any
 from uuid import uuid4
 
 import structlog
 from qdrant_client import AsyncQdrantClient, models
+from sqlalchemy import or_, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ceibo_core.core.config import settings
-from ceibo_core.models.schemas import MemoryHealth, MemoryRecord
+from ceibo_core.db.models import KnowledgeItem
+from ceibo_core.models.schemas import (
+    KnowledgeItemRecord,
+    KnowledgeItemRequest,
+    KnowledgeStatus,
+    MemoryHealth,
+    MemoryRecord,
+)
 from ceibo_core.services.embeddings import embedding_service
 
 logger = structlog.get_logger()
+
+
+SENSITIVE_PATTERNS = (
+    re.compile(r"(?i)\b(api[_-]?key|token|secret|password|passwd|jwt)\s*[:=]\s*['\"]?[\w.\-+/=]{8,}"),
+    re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),
+    re.compile(r"gh[pousr]_[A-Za-z0-9_]{16,}"),
+)
+
+
+def sanitize_memory_text(text: str) -> tuple[str, bool]:
+    sanitized = text
+    for pattern in SENSITIVE_PATTERNS:
+        sanitized = pattern.sub("[REDACTED_SECRET]", sanitized)
+    return sanitized, sanitized != text
 
 
 class MemoryService:
@@ -48,12 +73,16 @@ class MemoryService:
         user_id: str = "local-user",
         metadata: dict[str, Any] | None = None,
     ) -> MemoryRecord:
-        embedding = await embedding_service.embed(text)
+        safe_text, redacted = sanitize_memory_text(text)
+        safe_metadata = {**(metadata or {})}
+        if redacted:
+            safe_metadata["redacted"] = True
+        embedding = await embedding_service.embed(safe_text)
         record = MemoryRecord(
             memory_id=str(uuid4()),
             session_id=session_id,
-            content=text,
-            metadata=metadata or {},
+            content=safe_text,
+            metadata=safe_metadata,
             created_at=datetime.now(UTC),
         )
         self._local_memory[session_id].append((record, embedding))
@@ -170,3 +199,133 @@ class MemoryService:
 
 
 memory_service = MemoryService()
+
+
+class KnowledgeService:
+    def __init__(self) -> None:
+        self._fallback_items: deque[KnowledgeItemRecord] = deque(maxlen=settings.memory_local_limit)
+        self._sanitized_items = 0
+
+    async def status(self, db: AsyncSession | None = None) -> KnowledgeStatus:
+        total_items = len(self._fallback_items)
+        backend = "local"
+        if settings.persistence_enabled and db is not None:
+            backend = "postgres"
+            try:
+                result = await db.execute(select(KnowledgeItem))
+                total_items = len(result.scalars().all())
+            except SQLAlchemyError as exc:
+                logger.warning("knowledge_status_failed", error=str(exc))
+                backend = "local"
+        return KnowledgeStatus(
+            backend=backend,
+            total_items=total_items,
+            sanitized_items=self._sanitized_items,
+            safety_filters=["credential-redaction", "api-key-redaction", "token-redaction"],
+        )
+
+    async def add(
+        self,
+        db: AsyncSession | None,
+        request: KnowledgeItemRequest,
+    ) -> KnowledgeItemRecord:
+        content, redacted_content = sanitize_memory_text(request.content)
+        title, redacted_title = sanitize_memory_text(request.title)
+        metadata = {**request.metadata}
+        if redacted_content or redacted_title:
+            metadata["redacted"] = True
+            self._sanitized_items += 1
+        record = KnowledgeItemRecord(
+            item_id=str(uuid4()),
+            title=title,
+            content=content,
+            source=request.source,
+            user_id=request.user_id,
+            tags=request.tags,
+            metadata=metadata,
+            created_at=datetime.now(UTC),
+        )
+        self._fallback_items.appendleft(record)
+        await memory_service.remember(
+            session_id="knowledge-base",
+            text=f"{record.title}\n{record.content}",
+            user_id=record.user_id,
+            metadata={"kind": "knowledge", "source": record.source, "tags": record.tags},
+        )
+        if not settings.persistence_enabled or db is None:
+            return record
+        try:
+            db.add(
+                KnowledgeItem(
+                    id=record.item_id,
+                    user_id=record.user_id,
+                    title=record.title,
+                    content=record.content,
+                    source=record.source,
+                    tags=record.tags,
+                    item_metadata=record.metadata,
+                    created_at=record.created_at,
+                )
+            )
+            await db.commit()
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.warning("knowledge_add_failed", error=str(exc))
+        return record
+
+    async def list_recent(
+        self,
+        db: AsyncSession | None,
+        limit: int = 10,
+    ) -> list[KnowledgeItemRecord]:
+        if settings.persistence_enabled and db is not None:
+            try:
+                result = await db.execute(
+                    select(KnowledgeItem).order_by(KnowledgeItem.created_at.desc()).limit(limit)
+                )
+                return [self._from_record(item) for item in result.scalars().all()]
+            except SQLAlchemyError as exc:
+                logger.warning("knowledge_list_failed", error=str(exc))
+        return list(self._fallback_items)[:limit]
+
+    async def search(
+        self,
+        db: AsyncSession | None,
+        query: str,
+        limit: int = 5,
+    ) -> list[KnowledgeItemRecord]:
+        normalized = query.lower()
+        if settings.persistence_enabled and db is not None:
+            try:
+                result = await db.execute(
+                    select(KnowledgeItem)
+                    .where(or_(KnowledgeItem.title.ilike(f"%{query}%"), KnowledgeItem.content.ilike(f"%{query}%")))
+                    .order_by(KnowledgeItem.created_at.desc())
+                    .limit(limit)
+                )
+                return [self._from_record(item) for item in result.scalars().all()]
+            except SQLAlchemyError as exc:
+                logger.warning("knowledge_search_failed", error=str(exc))
+        matches = [
+            item
+            for item in self._fallback_items
+            if normalized in item.title.lower()
+            or normalized in item.content.lower()
+            or any(normalized in tag.lower() for tag in item.tags)
+        ]
+        return matches[:limit]
+
+    def _from_record(self, record: KnowledgeItem) -> KnowledgeItemRecord:
+        return KnowledgeItemRecord(
+            item_id=record.id,
+            title=record.title,
+            content=record.content,
+            source=record.source,
+            user_id=record.user_id,
+            tags=list(record.tags or []),
+            metadata=dict(record.item_metadata or {}),
+            created_at=record.created_at,
+        )
+
+
+knowledge_service = KnowledgeService()

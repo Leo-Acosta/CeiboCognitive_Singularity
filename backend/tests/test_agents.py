@@ -15,6 +15,7 @@ from ceibo_core.models.schemas import (
     DatasetVersionRequest,
     DatasetCurationRequest,
     HardwareProfile,
+    KnowledgeItemRequest,
     ModelRecommendationRequest,
     ModelPromotionRequest,
     ModelVersionRequest,
@@ -34,7 +35,7 @@ from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import EvaluationHarnessService
-from ceibo_core.services.memory import memory_service
+from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.model_catalog import model_catalog_service
 from ceibo_core.services.model_registry import ModelRegistryService
 from ceibo_core.services.singularity_index import SingularityIndexService
@@ -104,6 +105,43 @@ async def test_memory_service_retrieves_relevant_local_memory():
 
     assert matches
     assert "Qdrant" in matches[0].content
+
+
+@pytest.mark.asyncio
+async def test_memory_service_redacts_sensitive_values():
+    record = await memory_service.remember(
+        session_id="test-memory-safety",
+        text="api_key=sk-testsecretvalue123456789 para pruebas",
+        metadata={"kind": "secret-test"},
+    )
+
+    assert "sk-testsecretvalue" not in record.content
+    assert "[REDACTED_SECRET]" in record.content
+    assert record.metadata["redacted"] is True
+
+
+@pytest.mark.asyncio
+async def test_knowledge_service_adds_searchable_sanitized_item(monkeypatch):
+    monkeypatch.setattr("ceibo_core.services.memory.settings.persistence_enabled", False)
+
+    item = await knowledge_service.add(
+        None,
+        KnowledgeItemRequest(
+            title="Arquitectura Sprint 9",
+            content="La memoria progresiva usa token=supersecretvalue para validar redaccion.",
+            source="test",
+            tags=["arquitectura", "memoria"],
+        ),
+    )
+    matches = await knowledge_service.search(None, query="progresiva", limit=3)
+    status = await knowledge_service.status(None)
+
+    assert item.item_id
+    assert "supersecretvalue" not in item.content
+    assert item.metadata["redacted"] is True
+    assert any(match.item_id == item.item_id for match in matches)
+    assert status.total_items >= 1
+    assert "credential-redaction" in status.safety_filters
 
 
 @pytest.mark.asyncio

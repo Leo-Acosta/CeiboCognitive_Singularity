@@ -16,7 +16,7 @@ from ceibo_core.models.schemas import (
     SingularitySignal,
     TrainingRunStatus,
 )
-from ceibo_core.services.memory import memory_service
+from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.model_registry import model_registry_service
 from ceibo_core.services.training_data import training_data_service
@@ -31,6 +31,7 @@ class SingularityIndexService:
 
     async def calculate(self) -> SingularityIndex:
         memory_status = await memory_service.status()
+        knowledge_status = await knowledge_service.status(None)
         training_stats = await training_data_service.stats()
         latest_runs = training_runner_service.list_runs(limit=5)
         latest_eval = evaluation_harness_service.latest()
@@ -54,7 +55,11 @@ class SingularityIndexService:
                 "Memoria",
                 10,
                 max(
-                    self._score_memory(memory_status.vector_enabled, memory_status.local_items),
+                    self._score_memory(
+                        memory_status.vector_enabled,
+                        memory_status.local_items,
+                        knowledge_status.total_items,
+                    ),
                     eval_scores.get("rag", 0),
                 ),
                 [
@@ -63,6 +68,11 @@ class SingularityIndexService:
                         "Memoria vectorial",
                         memory_status.vector_enabled,
                         memory_status.collection_name,
+                    ),
+                    self._signal(
+                        "Knowledge Base",
+                        knowledge_status.total_items > 0,
+                        f"{knowledge_status.total_items} items / {knowledge_status.sanitized_items} saneados",
                     ),
                     self._signal("RAG eval", bool(latest_eval), self._eval_detail(latest_eval, "rag")),
                 ],
@@ -274,12 +284,14 @@ class SingularityIndexService:
     def _signal(self, name: str, active: bool, detail: object) -> SingularitySignal:
         return SingularitySignal(name=name, active=active, detail=str(detail))
 
-    def _score_memory(self, vector_enabled: bool, local_items: int) -> int:
+    def _score_memory(self, vector_enabled: bool, local_items: int, knowledge_items: int) -> int:
         score = 25
         if vector_enabled:
             score += 35
         if local_items:
             score += min(25, local_items)
+        if knowledge_items:
+            score += min(15, knowledge_items * 3)
         return min(100, score)
 
     def _score_training(

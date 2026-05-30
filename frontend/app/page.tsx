@@ -94,6 +94,13 @@ type PersistenceHealth = {
   error: string | null;
 };
 
+type KnowledgeStatus = {
+  backend: string;
+  total_items: number;
+  sanitized_items: number;
+  safety_filters: string[];
+};
+
 type SingularitySignal = {
   name: string;
   active: boolean;
@@ -311,6 +318,7 @@ export default function Home() {
   const [securityStatus, setSecurityStatus] = useState<SecurityPolicyStatus | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEventRecord[]>([]);
   const [persistenceHealth, setPersistenceHealth] = useState<PersistenceHealth | null>(null);
+  const [knowledgeStatus, setKnowledgeStatus] = useState<KnowledgeStatus | null>(null);
   const [singularityIndex, setSingularityIndex] = useState<SingularityIndex | null>(null);
   const [singularityHistory, setSingularityHistory] = useState<SingularitySnapshotRecord[]>([]);
   const [isCapturingSnapshot, setIsCapturingSnapshot] = useState(false);
@@ -413,6 +421,7 @@ export default function Home() {
       const [
         statusResponse,
         persistenceResponse,
+        knowledgeResponse,
         securityResponse,
         auditResponse,
         singularityResponse,
@@ -426,6 +435,7 @@ export default function Home() {
       ] = await Promise.all([
         fetch(`${apiUrl}/api/v1/status`),
         fetch(`${apiUrl}/health/persistence`),
+        fetch(`${apiUrl}/api/v1/memory/knowledge/status`),
         fetch(`${apiUrl}/api/v1/status/security`),
         fetch(`${apiUrl}/api/v1/status/audit?limit=6`),
         fetch(`${apiUrl}/api/v1/status/singularity-index`),
@@ -442,6 +452,9 @@ export default function Home() {
       }
       if (persistenceResponse.ok) {
         setPersistenceHealth((await persistenceResponse.json()) as PersistenceHealth);
+      }
+      if (knowledgeResponse.ok) {
+        setKnowledgeStatus((await knowledgeResponse.json()) as KnowledgeStatus);
       }
       if (securityResponse.ok) {
         setSecurityStatus((await securityResponse.json()) as SecurityPolicyStatus);
@@ -1413,6 +1426,23 @@ export default function Home() {
                             : persistenceHealth?.enabled
                               ? "offline"
                               : "local"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-white/7 px-3 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                            Knowledge Base
+                          </p>
+                          <p className="mt-1 text-sm text-slate-300">
+                            {knowledgeStatus?.backend ?? "sync"} /{" "}
+                            {knowledgeStatus?.safety_filters.length ?? 0} filtros
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-100">
+                          {knowledgeStatus?.total_items ?? 0} items
                         </span>
                       </div>
                     </div>

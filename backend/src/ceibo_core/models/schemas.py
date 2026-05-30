@@ -147,6 +147,38 @@ class MemorySearchResponse(BaseModel):
     matches: list[MemoryRecord]
 
 
+class KnowledgeItemRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    content: str = Field(min_length=1)
+    source: str = "manual"
+    user_id: str = "local-user"
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class KnowledgeItemRecord(BaseModel):
+    item_id: str
+    title: str
+    content: str
+    source: str
+    user_id: str
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class KnowledgeSearchResponse(BaseModel):
+    query: str
+    matches: list[KnowledgeItemRecord]
+
+
+class KnowledgeStatus(BaseModel):
+    backend: str
+    total_items: int
+    sanitized_items: int
+    safety_filters: list[str]
+
+
 class MemoryHealth(BaseModel):
     backend: str
     available: bool

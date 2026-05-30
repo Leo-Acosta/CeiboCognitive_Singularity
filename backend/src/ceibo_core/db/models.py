@@ -49,6 +49,21 @@ class ChatMessage(Base):
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
 
+class KnowledgeItem(Base):
+    __tablename__ = "knowledge_items"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    title: Mapped[str] = mapped_column(String(240), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(120), default="manual", index=True)
+    tags: Mapped[list] = mapped_column(JSONB, default=list)
+    item_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
+    )
+
+
 class AgentTask(Base):
     __tablename__ = "agent_tasks"
 
