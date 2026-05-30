@@ -15,11 +15,15 @@ from ceibo_core.db.models import DatasetVersion, ModelVersion
 from ceibo_core.models.schemas import (
     DatasetVersionRecord,
     DatasetVersionRequest,
+    ModelPromotionDecision,
+    ModelPromotionRequest,
     ModelVersionRecord,
     ModelVersionRequest,
     ModelVersionStatus,
+    PromotionGateCheck,
     RegistryOverview,
 )
+from ceibo_core.services.evaluation_harness import evaluation_harness_service
 
 logger = structlog.get_logger()
 
@@ -146,6 +150,51 @@ class ModelRegistryService:
                 logger.warning("model_version_register_failed", error=str(exc))
         return record
 
+    async def promote_model(
+        self,
+        db: AsyncSession | None,
+        request: ModelPromotionRequest,
+    ) -> ModelPromotionDecision:
+        models = await self.list_models(db, limit=100)
+        model = next(
+            (item for item in models if item.version_id == request.model_version_id),
+            None,
+        )
+        latest_eval = evaluation_harness_service.latest()
+        checks = self._promotion_checks(model, request, latest_eval)
+        approved = all(check.passed for check in checks)
+
+        if not approved:
+            return ModelPromotionDecision(
+                model_version_id=request.model_version_id,
+                approved=False,
+                checks=checks,
+                evaluation_run_id=latest_eval.run_id if latest_eval else None,
+            )
+
+        promoted = model.model_copy(
+            update={
+                "status": ModelVersionStatus.ACTIVE,
+                "metadata": {
+                    **model.metadata,
+                    "promotion": {
+                        "approved_by": request.approved_by,
+                        "notes": request.notes,
+                        "evaluation_run_id": latest_eval.run_id if latest_eval else None,
+                        "promoted_at": datetime.now(UTC).isoformat(),
+                    },
+                },
+            }
+        )
+        await self._activate_model(db, promoted)
+        return ModelPromotionDecision(
+            model_version_id=request.model_version_id,
+            approved=True,
+            promoted_model=promoted,
+            checks=checks,
+            evaluation_run_id=latest_eval.run_id if latest_eval else None,
+        )
+
     async def overview(self, db: AsyncSession | None, limit: int = 20) -> RegistryOverview:
         datasets = await self.list_datasets(db, limit=limit)
         models = await self.list_models(db, limit=limit)
@@ -183,6 +232,95 @@ class ModelRegistryService:
         except SQLAlchemyError as exc:
             logger.warning("model_version_list_failed", error=str(exc))
             return list(self._fallback_models)[:limit]
+
+    def _promotion_checks(
+        self,
+        model: ModelVersionRecord | None,
+        request: ModelPromotionRequest,
+        latest_eval,
+    ) -> list[PromotionGateCheck]:
+        checks = [
+            PromotionGateCheck(
+                name="model_exists",
+                passed=model is not None,
+                detail="modelo encontrado" if model else "modelo no encontrado",
+            ),
+            PromotionGateCheck(
+                name="human_approval",
+                passed=bool(request.approved_by),
+                detail=request.approved_by or "falta approved_by",
+            ),
+        ]
+        if model is None:
+            return checks
+
+        checks.append(
+            PromotionGateCheck(
+                name="status_allowed",
+                passed=model.status
+                in {
+                    ModelVersionStatus.CANDIDATE,
+                    ModelVersionStatus.EVALUATING,
+                    ModelVersionStatus.APPROVED,
+                },
+                detail=f"estado actual: {model.status.value}",
+            )
+        )
+        checks.append(
+            PromotionGateCheck(
+                name="dataset_linked",
+                passed=not request.require_dataset or bool(model.dataset_version_id),
+                detail=model.dataset_version_id or "modelo sin dataset_version_id",
+            )
+        )
+        checks.append(
+            PromotionGateCheck(
+                name="evaluation_available",
+                passed=not request.require_evaluation or latest_eval is not None,
+                detail=latest_eval.run_id if latest_eval else "sin evaluation run",
+            )
+        )
+        if latest_eval is not None:
+            checks.append(
+                PromotionGateCheck(
+                    name="evaluation_score",
+                    passed=latest_eval.average_score >= request.min_average_score,
+                    detail=f"{latest_eval.average_score}/100 >= {request.min_average_score}",
+                )
+            )
+            checks.append(
+                PromotionGateCheck(
+                    name="evaluation_status",
+                    passed=latest_eval.status == "passed",
+                    detail=latest_eval.status,
+                )
+            )
+        return checks
+
+    async def _activate_model(
+        self,
+        db: AsyncSession | None,
+        promoted: ModelVersionRecord,
+    ) -> None:
+        await self._deactivate_active_model(db)
+        self._fallback_models = deque(
+            [
+                promoted if model.version_id == promoted.version_id else model
+                for model in self._fallback_models
+            ],
+            maxlen=100,
+        )
+        if not settings.persistence_enabled or db is None:
+            return
+        try:
+            record = await db.get(ModelVersion, promoted.version_id)
+            if record is not None:
+                record.status = promoted.status.value
+                record.model_metadata = promoted.metadata
+            await db.commit()
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.warning("model_promotion_failed", error=str(exc))
 
     async def _deactivate_active_model(self, db: AsyncSession | None) -> None:
         self._fallback_models = deque(

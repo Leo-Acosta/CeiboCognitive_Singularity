@@ -207,6 +207,21 @@ type RegistryOverview = {
   active_model: ModelVersionRecord | null;
 };
 
+type PromotionGateCheck = {
+  name: string;
+  passed: boolean;
+  detail: string;
+};
+
+type ModelPromotionDecision = {
+  model_version_id: string;
+  approved: boolean;
+  promoted_model: ModelVersionRecord | null;
+  checks: PromotionGateCheck[];
+  evaluation_run_id: string | null;
+  created_at: string;
+};
+
 type TrainingRunnerReport = {
   run_id: string;
   status: "ready" | "blocked" | "running" | "completed" | "failed";
@@ -278,6 +293,8 @@ export default function Home() {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [registryOverview, setRegistryOverview] = useState<RegistryOverview | null>(null);
   const [isBootstrappingRegistry, setIsBootstrappingRegistry] = useState(false);
+  const [promotionDecision, setPromotionDecision] = useState<ModelPromotionDecision | null>(null);
+  const [isPromotingModel, setIsPromotingModel] = useState(false);
   const [teacherTopic, setTeacherTopic] = useState("CEIBO CORE entrenamiento local");
   const [isTeacherRunning, setIsTeacherRunning] = useState(false);
   const [trainingRun, setTrainingRun] = useState<TrainingRunnerReport | null>(null);
@@ -341,6 +358,17 @@ export default function Home() {
       { label: "Seguridad", value: `${scoreFor("Seguridad")}/100` },
     ];
   }, [singularityIndex]);
+
+  const promotableModel = useMemo(
+    () =>
+      registryOverview?.models.find(
+        (model) =>
+          model.status === "candidate" ||
+          model.status === "evaluating" ||
+          model.status === "approved",
+      ) ?? null,
+    [registryOverview],
+  );
 
   useEffect(() => {
     void refreshOperations();
@@ -433,6 +461,53 @@ export default function Home() {
       setTrainingNotice("No pude inicializar el Model/Dataset Registry.");
     } finally {
       setIsBootstrappingRegistry(false);
+    }
+  }
+
+  async function promoteCandidateModel() {
+    if (!promotableModel || isPromotingModel) {
+      return;
+    }
+
+    setIsPromotingModel(true);
+    setTrainingNotice("");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/registry/models/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model_version_id: promotableModel.version_id,
+          approved_by: "local-admin",
+          min_average_score: 67,
+          require_dataset: true,
+          require_evaluation: true,
+          notes: "Promocion desde dashboard local",
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`API responded ${response.status}`);
+      }
+      const decision = (await response.json()) as ModelPromotionDecision;
+      setPromotionDecision(decision);
+      setTrainingNotice(
+        decision.approved
+          ? `Modelo promovido: ${decision.promoted_model?.name ?? promotableModel.name}.`
+          : "Promotion Gate bloqueo la promocion.",
+      );
+      const registryResponse = await fetch(`${apiUrl}/api/v1/engine/registry?limit=6`);
+      if (registryResponse.ok) {
+        setRegistryOverview((await registryResponse.json()) as RegistryOverview);
+      }
+      const singularityResponse = await fetch(`${apiUrl}/api/v1/status/singularity-index`);
+      if (singularityResponse.ok) {
+        setSingularityIndex((await singularityResponse.json()) as SingularityIndex);
+      }
+      setConnectionState("ready");
+    } catch {
+      setConnectionState("offline");
+      setTrainingNotice("No pude ejecutar el Promotion Gate.");
+    } finally {
+      setIsPromotingModel(false);
     }
   }
 
@@ -1197,6 +1272,14 @@ export default function Home() {
                       >
                         Inicializar registry
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => void promoteCandidateModel()}
+                        disabled={!promotableModel || isPromotingModel}
+                        className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 transition hover:bg-emerald-300/15 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Promover modelo
+                      </button>
                     </div>
 
                     <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -1275,6 +1358,51 @@ export default function Home() {
                       <p className="mt-4 rounded-2xl border border-white/10 bg-white/7 px-3 py-3 text-sm text-slate-400">
                         El registry aun no tiene versiones. Inicializalo para crear baseline.
                       </p>
+                    ) : null}
+
+                    {promotionDecision ? (
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/7 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-100">
+                            Promotion Gate
+                          </p>
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs ${
+                              promotionDecision.approved
+                                ? "bg-emerald-300/10 text-emerald-200"
+                                : "bg-amber-300/10 text-amber-200"
+                            }`}
+                          >
+                            {promotionDecision.approved ? "approved" : "blocked"}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          {promotionDecision.checks.map((check) => (
+                            <div
+                              key={check.name}
+                              className="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="line-clamp-1 text-xs font-medium text-slate-200">
+                                  {check.name}
+                                </p>
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[11px] ${
+                                    check.passed
+                                      ? "bg-emerald-300/10 text-emerald-200"
+                                      : "bg-red-300/10 text-red-200"
+                                  }`}
+                                >
+                                  {check.passed ? "ok" : "fail"}
+                                </span>
+                              </div>
+                              <p className="mt-1 line-clamp-1 text-xs text-slate-500">
+                                {check.detail}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     ) : null}
                   </div>
                 </div>

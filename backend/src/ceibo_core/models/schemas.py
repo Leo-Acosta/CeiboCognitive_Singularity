@@ -441,6 +441,30 @@ class RegistryOverview(BaseModel):
     active_model: ModelVersionRecord | None = None
 
 
+class ModelPromotionRequest(BaseModel):
+    model_version_id: str = Field(min_length=1)
+    approved_by: str | None = None
+    min_average_score: int = Field(default=67, ge=0, le=100)
+    require_dataset: bool = True
+    require_evaluation: bool = True
+    notes: str = ""
+
+
+class PromotionGateCheck(BaseModel):
+    name: str
+    passed: bool
+    detail: str
+
+
+class ModelPromotionDecision(BaseModel):
+    model_version_id: str
+    approved: bool
+    promoted_model: ModelVersionRecord | None = None
+    checks: list[PromotionGateCheck] = Field(default_factory=list)
+    evaluation_run_id: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class CoreStatus(BaseModel):
     service: str
     environment: str

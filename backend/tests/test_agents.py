@@ -13,6 +13,7 @@ from ceibo_core.models.schemas import (
     DatasetCurationRequest,
     HardwareProfile,
     ModelRecommendationRequest,
+    ModelPromotionRequest,
     ModelVersionRequest,
     ModelVersionStatus,
     TaskRequest,
@@ -334,6 +335,86 @@ async def test_model_registry_registers_dataset_and_active_model(monkeypatch):
     assert model.status == ModelVersionStatus.ACTIVE
     assert overview.active_model is not None
     assert overview.active_model.name == "ceibo-test"
+
+
+@pytest.mark.asyncio
+async def test_model_promotion_gate_blocks_without_human_approval(monkeypatch):
+    service = ModelRegistryService()
+    monkeypatch.setattr("ceibo_core.services.model_registry.settings.persistence_enabled", False)
+    dataset = await service.register_dataset(
+        None,
+        DatasetVersionRequest(
+            name="seed",
+            path="training/datasets/ceibo_seed.jsonl",
+            source="test",
+        ),
+    )
+    model = await service.register_model(
+        None,
+        ModelVersionRequest(
+            name="candidate",
+            base_model="ceibo_local",
+            dataset_version_id=dataset.version_id,
+        ),
+    )
+
+    decision = await service.promote_model(
+        None,
+        ModelPromotionRequest(
+            model_version_id=model.version_id,
+            require_evaluation=False,
+        ),
+    )
+
+    assert decision.approved is False
+    assert any(check.name == "human_approval" and not check.passed for check in decision.checks)
+
+
+@pytest.mark.asyncio
+async def test_model_promotion_gate_activates_approved_candidate(monkeypatch):
+    service = ModelRegistryService()
+    monkeypatch.setattr("ceibo_core.services.model_registry.settings.persistence_enabled", False)
+    dataset = await service.register_dataset(
+        None,
+        DatasetVersionRequest(
+            name="seed",
+            path="training/datasets/ceibo_seed.jsonl",
+            source="test",
+        ),
+    )
+    original = await service.register_model(
+        None,
+        ModelVersionRequest(
+            name="original",
+            base_model="ceibo_local",
+            status=ModelVersionStatus.ACTIVE,
+        ),
+    )
+    candidate = await service.register_model(
+        None,
+        ModelVersionRequest(
+            name="candidate",
+            base_model="ceibo_local",
+            dataset_version_id=dataset.version_id,
+        ),
+    )
+
+    decision = await service.promote_model(
+        None,
+        ModelPromotionRequest(
+            model_version_id=candidate.version_id,
+            approved_by="local-admin",
+            require_evaluation=False,
+        ),
+    )
+    overview = await service.overview(None)
+    models = {model.version_id: model for model in overview.models}
+
+    assert decision.approved is True
+    assert decision.promoted_model is not None
+    assert overview.active_model is not None
+    assert overview.active_model.version_id == candidate.version_id
+    assert models[original.version_id].status == ModelVersionStatus.APPROVED
 
 
 @pytest.mark.asyncio

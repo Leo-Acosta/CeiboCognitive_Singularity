@@ -14,6 +14,8 @@ from ceibo_core.models.schemas import (
     DatasetCurationRequest,
     ModelCandidate,
     ModelRecommendationRequest,
+    ModelPromotionDecision,
+    ModelPromotionRequest,
     ModelVersionRecord,
     ModelVersionRequest,
     QloraTrainingRequest,
@@ -118,6 +120,14 @@ async def register_model_version(
     db: AsyncSession = Depends(get_db),
 ) -> ModelVersionRecord:
     return await model_registry_service.register_model(db, request)
+
+
+@router.post("/registry/models/promote", response_model=ModelPromotionDecision)
+async def promote_model_version(
+    request: ModelPromotionRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ModelPromotionDecision:
+    return await model_registry_service.promote_model(db, request)
 
 
 @router.post("/models/recommend", response_model=ModelCandidate)
