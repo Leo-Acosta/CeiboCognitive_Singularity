@@ -35,6 +35,7 @@ type TaskResponse = {
   status: string;
   assigned_agent: string;
   summary: string;
+  orchestration_trace: OrchestrationTraceRecord | null;
   created_at: string;
 };
 
@@ -44,6 +45,24 @@ type TaskRecord = {
   status: string;
   assigned_agent: string;
   priority: number;
+  created_at: string;
+};
+
+type OrchestrationStep = {
+  agent: string;
+  action: string;
+  reason: string;
+  status: string;
+};
+
+type OrchestrationTraceRecord = {
+  trace_id: string;
+  task_id: string | null;
+  user_id: string;
+  goal: string;
+  primary_agent: string;
+  route_reason: string;
+  steps: OrchestrationStep[];
   created_at: string;
 };
 
@@ -313,6 +332,7 @@ export default function Home() {
   const [memoryCount, setMemoryCount] = useState(0);
   const [taskGoal, setTaskGoal] = useState("");
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [orchestrationTraces, setOrchestrationTraces] = useState<OrchestrationTraceRecord[]>([]);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [coreStatus, setCoreStatus] = useState<CoreStatus | null>(null);
   const [securityStatus, setSecurityStatus] = useState<SecurityPolicyStatus | null>(null);
@@ -427,6 +447,7 @@ export default function Home() {
         singularityResponse,
         singularityHistoryResponse,
         tasksResponse,
+        orchestrationResponse,
         examplesResponse,
         statsResponse,
         teacherStatusResponse,
@@ -441,6 +462,7 @@ export default function Home() {
         fetch(`${apiUrl}/api/v1/status/singularity-index`),
         fetch(`${apiUrl}/api/v1/status/singularity-index/history?limit=6`),
         fetch(`${apiUrl}/api/v1/tasks`),
+        fetch(`${apiUrl}/api/v1/agents/orchestration/recent?limit=4`),
         fetch(`${apiUrl}/api/v1/engine/training/examples?limit=5`),
         fetch(`${apiUrl}/api/v1/engine/training/stats`),
         fetch(`${apiUrl}/api/v1/engine/teacher/status`),
@@ -472,6 +494,11 @@ export default function Home() {
       }
       if (tasksResponse.ok) {
         setTasks((await tasksResponse.json()) as TaskRecord[]);
+      }
+      if (orchestrationResponse.ok) {
+        setOrchestrationTraces(
+          (await orchestrationResponse.json()) as OrchestrationTraceRecord[],
+        );
       }
       if (examplesResponse.ok) {
         setTrainingExamples((await examplesResponse.json()) as TrainingExample[]);
@@ -715,6 +742,9 @@ export default function Home() {
       const data = (await response.json()) as TaskResponse;
       setTaskGoal("");
       setLastAgent(data.assigned_agent);
+      if (data.orchestration_trace) {
+        setOrchestrationTraces((current) => [data.orchestration_trace!, ...current].slice(0, 4));
+      }
       setTasks((current) => [
         {
           task_id: data.task_id,
@@ -1744,6 +1774,32 @@ export default function Home() {
                       <ChevronRight className="h-5 w-5" />
                     </button>
                   </form>
+
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                          Orquestacion
+                        </p>
+                        <p className="mt-1 line-clamp-1 text-sm text-slate-300">
+                          {orchestrationTraces[0]?.route_reason ?? "esperando task"}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-[#8be9ff]/10 px-2.5 py-1 text-xs text-[#dff8ff]">
+                        {orchestrationTraces[0]?.primary_agent.replace("_", " ") ?? "core"}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(orchestrationTraces[0]?.steps ?? []).slice(0, 4).map((step) => (
+                        <span
+                          key={`${step.agent}-${step.action}`}
+                          className="rounded-full border border-white/10 bg-white/7 px-2.5 py-1 text-[11px] text-slate-300"
+                        >
+                          {step.action}: {step.agent.replace("_", " ")}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
 
                   <div className="mt-4 space-y-2">
                     {tasks.length === 0 ? (

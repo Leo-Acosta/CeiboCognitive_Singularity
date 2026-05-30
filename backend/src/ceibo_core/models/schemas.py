@@ -105,6 +105,7 @@ class TaskResponse(BaseModel):
     status: TaskStatus = TaskStatus.ACCEPTED
     assigned_agent: AgentRole
     summary: str
+    orchestration_trace: "OrchestrationTraceRecord | None" = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -123,6 +124,24 @@ class AgentDescriptor(BaseModel):
     description: str
     capabilities: list[str]
     enabled: bool = True
+
+
+class OrchestrationStep(BaseModel):
+    agent: AgentRole
+    action: str
+    reason: str
+    status: str = "planned"
+
+
+class OrchestrationTraceRecord(BaseModel):
+    trace_id: str = Field(default_factory=lambda: str(uuid4()))
+    task_id: str | None = None
+    user_id: str = "local-user"
+    goal: str
+    primary_agent: AgentRole
+    route_reason: str
+    steps: list[OrchestrationStep]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class MemoryRememberRequest(BaseModel):

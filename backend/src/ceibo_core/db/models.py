@@ -79,6 +79,21 @@ class AgentTask(Base):
     )
 
 
+class OrchestrationTrace(Base):
+    __tablename__ = "orchestration_traces"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: str(uuid4()))
+    task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    goal: Mapped[str] = mapped_column(Text)
+    primary_agent: Mapped[str] = mapped_column(String(80), index=True)
+    route_reason: Mapped[str] = mapped_column(Text)
+    steps: Mapped[list] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

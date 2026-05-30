@@ -8,6 +8,7 @@ from ceibo_core.models.schemas import AgentRole, AuthContext, TaskRecord, TaskRe
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.conversations import conversation_store
 from ceibo_core.services.event_bus import event_bus
+from ceibo_core.services.orchestration import orchestration_service
 from ceibo_core.services.tasks import task_store
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -40,6 +41,9 @@ async def create_task(
         raise
     orchestrator = agent_registry[AgentRole.CORE_ORCHESTRATOR]
     response = await orchestrator.handle_task(request)
+    if response.orchestration_trace is not None:
+        response.orchestration_trace.task_id = str(response.task_id)
+        await orchestration_service.record(db, response.orchestration_trace)
     await task_store.append_task(db, request, response)
     await audit_trail_service.record(
         db,

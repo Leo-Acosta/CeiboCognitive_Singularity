@@ -19,6 +19,7 @@ from ceibo_core.models.schemas import (
 from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.model_registry import model_registry_service
+from ceibo_core.services.orchestration import orchestration_service
 from ceibo_core.services.training_data import training_data_service
 from ceibo_core.services.training_runner import training_runner_service
 
@@ -37,6 +38,7 @@ class SingularityIndexService:
         latest_eval = evaluation_harness_service.latest()
         eval_scores = latest_eval.category_scores if latest_eval else {}
         registry_overview = await model_registry_service.overview(None, limit=10)
+        orchestration_traces = await orchestration_service.recent(None, limit=5)
         project_root = training_data_service.project_root()
         curated_dataset = project_root / "training" / "datasets" / "ceibo_instructions.curated.jsonl"
 
@@ -102,10 +104,15 @@ class SingularityIndexService:
             self._category(
                 "Capacidad multiagente",
                 10,
-                min(100, len(agent_registry) * 10),
+                min(100, len(agent_registry) * 10 + (15 if orchestration_traces else 0)),
                 [
                     self._signal("Agentes registrados", len(agent_registry) >= 8, f"{len(agent_registry)} agentes"),
-                    self._signal("CORE Orchestrator", True, "routing inicial activo"),
+                    self._signal("CORE Orchestrator", True, "routing trazable activo"),
+                    self._signal(
+                        "Handoffs trazables",
+                        bool(orchestration_traces),
+                        f"{len(orchestration_traces)} traces recientes",
+                    ),
                 ],
             ),
             self._category(

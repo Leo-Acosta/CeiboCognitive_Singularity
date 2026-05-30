@@ -38,6 +38,7 @@ from ceibo_core.services.evaluation_harness import EvaluationHarnessService
 from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.model_catalog import model_catalog_service
 from ceibo_core.services.model_registry import ModelRegistryService
+from ceibo_core.services.orchestration import orchestration_service
 from ceibo_core.services.singularity_index import SingularityIndexService
 from ceibo_core.services.tasks import task_store
 from ceibo_core.services.teacher_agent import TeacherAgentService
@@ -52,6 +53,31 @@ async def test_orchestrator_routes_kubernetes_task_to_infrastructure_agent():
     response = await orchestrator.handle_task(TaskRequest(goal="revisar logs de kubernetes"))
 
     assert response.assigned_agent == AgentRole.INFRASTRUCTURE
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_returns_orchestration_trace_for_task():
+    orchestrator = agent_registry[AgentRole.CORE_ORCHESTRATOR]
+
+    response = await orchestrator.handle_task(
+        TaskRequest(goal="aplica hardening de seguridad y revisa auditoria", user_id="tester")
+    )
+
+    assert response.assigned_agent == AgentRole.CYBERSECURITY
+    assert response.orchestration_trace is not None
+    assert response.orchestration_trace.primary_agent == AgentRole.CYBERSECURITY
+    assert response.orchestration_trace.steps[0].agent == AgentRole.CORE_ORCHESTRATOR
+    assert any(step.status == "completed" for step in response.orchestration_trace.steps)
+
+
+def test_orchestration_plan_adds_support_handoffs():
+    trace = orchestration_service.plan(
+        TaskRequest(goal="automatiza un workflow docker con memoria rag", user_id="tester")
+    )
+
+    assert trace.primary_agent in {AgentRole.AUTOMATION, AgentRole.INFRASTRUCTURE}
+    assert len(trace.steps) >= 3
+    assert any(step.action == "support" for step in trace.steps)
 
 
 @pytest.mark.asyncio

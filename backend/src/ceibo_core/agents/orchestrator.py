@@ -2,6 +2,7 @@ from ceibo_core.agents.base import BaseAgent
 from ceibo_core.core.config import settings
 from ceibo_core.models.schemas import AgentRole, ChatRequest, ChatResponse, TaskRequest, TaskResponse
 from ceibo_core.services.llm import llm_gateway
+from ceibo_core.services.orchestration import orchestration_service
 
 
 class CoreOrchestrator(BaseAgent):
@@ -36,29 +37,20 @@ class CoreOrchestrator(BaseAgent):
         )
 
     async def handle_task(self, request: TaskRequest) -> TaskResponse:
-        agent = self._select_agent(request)
+        trace = orchestration_service.plan(request)
+        agent = self._agents.get(trace.primary_agent, self)
         if agent.role == self.role:
             return TaskResponse(
                 assigned_agent=self.role,
                 summary=f"CORE acepto la tarea para planificacion central: {request.goal}",
+                orchestration_trace=trace,
             )
-        return await agent.handle_task(request)
-
-    def _select_agent(self, request: TaskRequest) -> BaseAgent:
-        if request.requested_agent and request.requested_agent in self._agents:
-            return self._agents[request.requested_agent]
-
-        goal = request.goal.lower()
-        keyword_map = {
-            AgentRole.INFRASTRUCTURE: ["kubernetes", "docker", "deploy", "logs", "cluster"],
-            AgentRole.CYBERSECURITY: ["security", "seguridad", "hardening", "siem", "anomalia"],
-            AgentRole.RESEARCH: ["investiga", "resume", "busca", "research"],
-            AgentRole.AUTOMATION: ["automatiza", "script", "workflow", "playwright", "selenium"],
-            AgentRole.MEMORY: ["memoria", "rag", "embedding", "recordar"],
-            AgentRole.VOICE: ["voz", "whisper", "tts", "wake"],
-            AgentRole.SYSTEM_CONTROL: ["archivo", "terminal", "proceso", "sistema operativo"],
-        }
-        for role, keywords in keyword_map.items():
-            if any(keyword in goal for keyword in keywords):
-                return self._agents[role]
-        return self
+        response = await agent.handle_task(request)
+        trace.task_id = str(response.task_id)
+        trace.steps = [
+            step.model_copy(update={"status": "completed"})
+            if step.agent in {AgentRole.CORE_ORCHESTRATOR, response.assigned_agent}
+            else step
+            for step in trace.steps
+        ]
+        return response.model_copy(update={"orchestration_trace": trace})
