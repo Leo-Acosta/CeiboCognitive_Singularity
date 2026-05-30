@@ -84,6 +84,8 @@ API:
 - `POST /api/v1/status/singularity-index/snapshots`
 - `GET /api/v1/engine/status`
 - `POST /api/v1/engine/generate`
+- `GET /api/v1/devcore/status`
+- `POST /api/v1/devcore/plan`
 - `POST /api/v1/engine/evaluations/run`
 - `GET /api/v1/engine/evaluations/latest`
 - `GET /api/v1/engine/models`
@@ -154,6 +156,7 @@ helm upgrade --install ceibo-core charts/ceibo-core -n ceibo-core --create-names
 - [Arquitectura](docs/architecture.md)
 - [Ceibo Cognitive Singularity](docs/ceibo-cognitive-singularity.md)
 - [Release Readiness](docs/release-readiness.md)
+- [Ceibo DevCore](docs/devcore.md)
 - [Prompt operativo](docs/ceibo-operating-prompt.md)
 - [Sistema multiagente](docs/agents.md)
 - [CEIBO AI Engine](docs/local-ai-engine.md)

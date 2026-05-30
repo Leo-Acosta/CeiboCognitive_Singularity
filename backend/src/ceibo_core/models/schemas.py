@@ -183,6 +183,37 @@ class LongRunningJobRecord(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class DevCoreStatus(BaseModel):
+    module: str = "ceibo_devcore"
+    mode: str = "local_mvp"
+    capabilities: list[str]
+    repo_root: str
+    indexed_files: int
+    writable: bool = False
+
+
+class DevCorePlanRequest(BaseModel):
+    goal: str = Field(min_length=1)
+    user_id: str = "local-user"
+    context: list[str] = Field(default_factory=list)
+
+
+class DevCorePlanStep(BaseModel):
+    order: int
+    action: str
+    target: str
+    safety: str
+
+
+class DevCorePlanResponse(BaseModel):
+    plan_id: str = Field(default_factory=lambda: str(uuid4()))
+    goal: str
+    summary: str
+    recommended_agent: AgentRole = AgentRole.AUTOMATION
+    steps: list[DevCorePlanStep]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class MemoryRememberRequest(BaseModel):
     session_id: str = Field(min_length=1)
     content: str = Field(min_length=1)

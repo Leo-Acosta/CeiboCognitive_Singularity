@@ -18,6 +18,7 @@ from ceibo_core.models.schemas import (
     JobKind,
     JobStatus,
     KnowledgeItemRequest,
+    DevCorePlanRequest,
     LongRunningJobRequest,
     ModelRecommendationRequest,
     ModelPromotionRequest,
@@ -38,6 +39,7 @@ from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import EvaluationHarnessService
+from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.jobs import long_running_job_service
 from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.model_catalog import model_catalog_service
@@ -141,6 +143,19 @@ async def test_long_running_job_reports_missing_job(monkeypatch):
 
     with pytest.raises(ValueError):
         await long_running_job_service.run(None, "missing-job")
+
+
+def test_devcore_reports_local_status_and_plan():
+    status = devcore_service.status()
+    plan = devcore_service.plan(
+        DevCorePlanRequest(goal="agrega un endpoint backend con tests", user_id="tester")
+    )
+
+    assert status.module == "ceibo_devcore"
+    assert status.mode == "local_mvp"
+    assert status.indexed_files > 0
+    assert plan.steps[0].action == "inspect"
+    assert "backend/src/ceibo_core/api" in plan.steps[0].target
 
 
 @pytest.mark.asyncio

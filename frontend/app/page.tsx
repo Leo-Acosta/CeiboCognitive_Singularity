@@ -132,6 +132,15 @@ type KnowledgeStatus = {
   safety_filters: string[];
 };
 
+type DevCoreStatus = {
+  module: string;
+  mode: string;
+  capabilities: string[];
+  repo_root: string;
+  indexed_files: number;
+  writable: boolean;
+};
+
 type SingularitySignal = {
   name: string;
   active: boolean;
@@ -352,6 +361,7 @@ export default function Home() {
   const [auditEvents, setAuditEvents] = useState<AuditEventRecord[]>([]);
   const [persistenceHealth, setPersistenceHealth] = useState<PersistenceHealth | null>(null);
   const [knowledgeStatus, setKnowledgeStatus] = useState<KnowledgeStatus | null>(null);
+  const [devCoreStatus, setDevCoreStatus] = useState<DevCoreStatus | null>(null);
   const [singularityIndex, setSingularityIndex] = useState<SingularityIndex | null>(null);
   const [singularityHistory, setSingularityHistory] = useState<SingularitySnapshotRecord[]>([]);
   const [isCapturingSnapshot, setIsCapturingSnapshot] = useState(false);
@@ -455,6 +465,7 @@ export default function Home() {
         statusResponse,
         persistenceResponse,
         knowledgeResponse,
+        devCoreResponse,
         securityResponse,
         auditResponse,
         singularityResponse,
@@ -471,6 +482,7 @@ export default function Home() {
         fetch(`${apiUrl}/api/v1/status`),
         fetch(`${apiUrl}/health/persistence`),
         fetch(`${apiUrl}/api/v1/memory/knowledge/status`),
+        fetch(`${apiUrl}/api/v1/devcore/status`),
         fetch(`${apiUrl}/api/v1/status/security`),
         fetch(`${apiUrl}/api/v1/status/audit?limit=6`),
         fetch(`${apiUrl}/api/v1/status/singularity-index`),
@@ -492,6 +504,9 @@ export default function Home() {
       }
       if (knowledgeResponse.ok) {
         setKnowledgeStatus((await knowledgeResponse.json()) as KnowledgeStatus);
+      }
+      if (devCoreResponse.ok) {
+        setDevCoreStatus((await devCoreResponse.json()) as DevCoreStatus);
       }
       if (securityResponse.ok) {
         setSecurityStatus((await securityResponse.json()) as SecurityPolicyStatus);
@@ -1852,6 +1867,25 @@ export default function Home() {
                         </div>
                       ))}
                     </div>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                          DevCore Local
+                        </p>
+                        <p className="mt-1 text-sm text-slate-300">
+                          {devCoreStatus?.mode ?? "sync"} / {devCoreStatus?.indexed_files ?? 0} files
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-xs text-emerald-100">
+                        {devCoreStatus?.writable ? "write" : "read-only"}
+                      </span>
+                    </div>
+                    <p className="mt-3 line-clamp-1 text-xs text-slate-500">
+                      {(devCoreStatus?.capabilities ?? []).slice(0, 3).join(" / ") || "esperando modulo"}
+                    </p>
                   </div>
 
                   <div className="mt-4 space-y-2">
