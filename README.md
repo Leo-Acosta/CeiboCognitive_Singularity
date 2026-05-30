@@ -54,15 +54,36 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Checks de release:
+
+```powershell
+.\scripts\check.ps1
+```
+
 API:
 
 - `GET /health`
+- `GET /health/persistence`
 - `GET /api/v1/agents`
+- `POST /api/v1/agents/orchestration/plan`
+- `GET /api/v1/agents/orchestration/recent`
 - `GET /api/v1/status`
+- `GET /api/v1/status/security`
+- `GET /api/v1/status/audit`
+- `GET /api/v1/status/singularity-index`
+- `GET /api/v1/status/singularity-index/history`
+- `POST /api/v1/status/singularity-index/snapshots`
 - `GET /api/v1/engine/status`
 - `POST /api/v1/engine/generate`
+- `POST /api/v1/engine/evaluations/run`
+- `GET /api/v1/engine/evaluations/latest`
 - `GET /api/v1/engine/models`
 - `POST /api/v1/engine/models/recommend`
+- `GET /api/v1/engine/registry`
+- `POST /api/v1/engine/registry/bootstrap`
+- `POST /api/v1/engine/registry/datasets`
+- `POST /api/v1/engine/registry/models`
+- `POST /api/v1/engine/registry/models/promote`
 - `POST /api/v1/engine/training/plan`
 - `GET /api/v1/engine/training/examples`
 - `POST /api/v1/engine/training/examples`
@@ -80,8 +101,15 @@ API:
 - `GET /api/v1/memory/health`
 - `POST /api/v1/memory/remember`
 - `GET /api/v1/memory/search`
+- `GET /api/v1/memory/knowledge/status`
+- `GET /api/v1/memory/knowledge`
+- `POST /api/v1/memory/knowledge`
+- `GET /api/v1/memory/knowledge/search`
 - `GET /api/v1/tasks`
 - `POST /api/v1/tasks`
+- `GET /api/v1/tasks/jobs`
+- `POST /api/v1/tasks/jobs`
+- `GET /api/v1/tasks/jobs/{job_id}`
 - `WS /api/v1/ws`
 
 Si los puertos `8000` o `8001` ya estan ocupados en desarrollo local, puedes
@@ -116,6 +144,7 @@ helm upgrade --install ceibo-core charts/ceibo-core -n ceibo-core --create-names
 
 - [Arquitectura](docs/architecture.md)
 - [Ceibo Cognitive Singularity](docs/ceibo-cognitive-singularity.md)
+- [Release Readiness](docs/release-readiness.md)
 - [Prompt operativo](docs/ceibo-operating-prompt.md)
 - [Sistema multiagente](docs/agents.md)
 - [CEIBO AI Engine](docs/local-ai-engine.md)
