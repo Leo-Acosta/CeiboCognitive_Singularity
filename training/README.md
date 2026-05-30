@@ -2,6 +2,15 @@
 
 Esta carpeta prepara el camino para entrenar/fine-tunear el motor local de CEIBO.
 
+## Datasets incluidos
+
+| Archivo | Uso |
+| --- | --- |
+| `datasets/ceibo_seed.jsonl` | Semilla base de identidad, memoria, agentes y entrenamiento. |
+| `datasets/ceibo_seed.normalized.jsonl` | Semilla normalizada para pruebas de ingestion. |
+| `datasets/ceibo_instructions.jsonl` | Dataset operativo capturado desde feedback/dashboard y ejemplos iniciales. |
+| `datasets/ceibo_instructions.curated.jsonl` | Version curada para smoke tests de LoRA/QLoRA. |
+
 ## Objetivo
 
 Crear datasets propios para convertir CEIBO CORE en una IA local ajustada a:

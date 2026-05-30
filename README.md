@@ -1,17 +1,26 @@
-# CEIBO CORE
+# Ceibo Cognitive Singularity
 
-CEIBO CORE es una plataforma tipo JARVIS orientada a agentes IA, voz natural,
-memoria persistente, automatizacion, control de sistema operativo e
-infraestructura distribuida.
+Ceibo Cognitive Singularity es una plataforma local-first de inteligencia
+artificial progresiva. Su nucleo operativo, CEIBO CORE, esta orientado a
+agentes IA, voz natural, memoria persistente, automatizacion, control de
+sistema operativo, entrenamiento local e infraestructura distribuida.
+
+El proyecto no afirma haber alcanzado una Singularidad de IA. La Singularidad
+se toma como horizonte tecnico medible: mejorar por ciclos controlados de
+memoria, razonamiento, entrenamiento, uso de herramientas, autonomia,
+seguridad y evaluacion continua.
 
 ## Objetivo
 
-Construir un asistente central, modular y escalable capaz de:
+Construir un sistema central, modular, escalable y entrenable capaz de:
 
 - Conversar con lenguaje natural.
 - Coordinar agentes especializados.
 - Ejecutar tareas locales y remotas.
 - Mantener memoria persistente mediante RAG.
+- Curar datasets propios para entrenamiento.
+- Ejecutar ciclos de fine-tuning LoRA/QLoRA bajo evaluacion.
+- Medir progreso con un Singularity Index.
 - Integrarse con modelos cloud y locales.
 - Operar con Docker, Kubernetes y GPU en fases futuras.
 - Exponer APIs, WebSockets y dashboard administrativo.
@@ -107,6 +116,7 @@ helm upgrade --install ceibo-core charts/ceibo-core -n ceibo-core --create-names
 
 - [Arquitectura](docs/architecture.md)
 - [Ceibo Cognitive Singularity](docs/ceibo-cognitive-singularity.md)
+- [Prompt operativo](docs/ceibo-operating-prompt.md)
 - [Sistema multiagente](docs/agents.md)
 - [CEIBO AI Engine](docs/local-ai-engine.md)
 - [Teacher Agent local](docs/teacher-agent.md)
