@@ -178,6 +178,35 @@ type EvaluationSuiteReport = {
   created_at: string;
 };
 
+type DatasetVersionRecord = {
+  version_id: string;
+  name: string;
+  path: string;
+  sha256: string;
+  examples: number;
+  source: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+type ModelVersionRecord = {
+  version_id: string;
+  name: string;
+  base_model: string;
+  adapter_path: string | null;
+  dataset_version_id: string | null;
+  status: "candidate" | "evaluating" | "approved" | "active" | "archived";
+  metrics: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+type RegistryOverview = {
+  datasets: DatasetVersionRecord[];
+  models: ModelVersionRecord[];
+  active_model: ModelVersionRecord | null;
+};
+
 type TrainingRunnerReport = {
   run_id: string;
   status: "ready" | "blocked" | "running" | "completed" | "failed";
@@ -247,6 +276,8 @@ export default function Home() {
   const [teacherReview, setTeacherReview] = useState<TeacherReviewResponse | null>(null);
   const [evaluationReport, setEvaluationReport] = useState<EvaluationSuiteReport | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [registryOverview, setRegistryOverview] = useState<RegistryOverview | null>(null);
+  const [isBootstrappingRegistry, setIsBootstrappingRegistry] = useState(false);
   const [teacherTopic, setTeacherTopic] = useState("CEIBO CORE entrenamiento local");
   const [isTeacherRunning, setIsTeacherRunning] = useState(false);
   const [trainingRun, setTrainingRun] = useState<TrainingRunnerReport | null>(null);
@@ -326,6 +357,7 @@ export default function Home() {
         statsResponse,
         teacherStatusResponse,
         evaluationResponse,
+        registryResponse,
       ] = await Promise.all([
         fetch(`${apiUrl}/api/v1/status`),
         fetch(`${apiUrl}/api/v1/status/singularity-index`),
@@ -335,6 +367,7 @@ export default function Home() {
         fetch(`${apiUrl}/api/v1/engine/training/stats`),
         fetch(`${apiUrl}/api/v1/engine/teacher/status`),
         fetch(`${apiUrl}/api/v1/engine/evaluations/latest`),
+        fetch(`${apiUrl}/api/v1/engine/registry?limit=6`),
       ]);
       if (statusResponse.ok) {
         setCoreStatus((await statusResponse.json()) as CoreStatus);
@@ -363,8 +396,43 @@ export default function Home() {
         const result = await evaluationResponse.json();
         setEvaluationReport(result as EvaluationSuiteReport | null);
       }
+      if (registryResponse.ok) {
+        setRegistryOverview((await registryResponse.json()) as RegistryOverview);
+      }
     } catch {
       setConnectionState("offline");
+    }
+  }
+
+  async function bootstrapRegistry() {
+    if (isBootstrappingRegistry) {
+      return;
+    }
+
+    setIsBootstrappingRegistry(true);
+    setTrainingNotice("");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/registry/bootstrap`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error(`API responded ${response.status}`);
+      }
+      const overview = (await response.json()) as RegistryOverview;
+      setRegistryOverview(overview);
+      setTrainingNotice(
+        `Registry actualizado: ${overview.datasets.length} datasets, ${overview.models.length} modelos.`,
+      );
+      const singularityResponse = await fetch(`${apiUrl}/api/v1/status/singularity-index`);
+      if (singularityResponse.ok) {
+        setSingularityIndex((await singularityResponse.json()) as SingularityIndex);
+      }
+      setConnectionState("ready");
+    } catch {
+      setConnectionState("offline");
+      setTrainingNotice("No pude inicializar el Model/Dataset Registry.");
+    } finally {
+      setIsBootstrappingRegistry(false);
     }
   }
 
@@ -1109,6 +1177,105 @@ export default function Home() {
                         Todavia no hay evaluaciones. Ejecuta el primer suite para crear baseline.
                       </p>
                     )}
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                          Model/Dataset Registry
+                        </p>
+                        <p className="mt-1 text-sm text-slate-300">
+                          Versionado inicial de datasets, adapters y modelo activo.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void bootstrapRegistry()}
+                        disabled={isBootstrappingRegistry}
+                        className="rounded-full border border-[#8be9ff]/25 bg-[#8be9ff]/10 px-4 py-2 text-sm text-[#dff8ff] transition hover:bg-[#8be9ff]/15 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Inicializar registry
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-white/10 bg-white/7 px-3 py-3">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                          Datasets
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-white">
+                          {registryOverview?.datasets.length ?? 0}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-white/7 px-3 py-3">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                          Modelos
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-white">
+                          {registryOverview?.models.length ?? 0}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-white/7 px-3 py-3">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                          Activo
+                        </p>
+                        <p className="mt-2 line-clamp-1 text-sm font-semibold text-white">
+                          {registryOverview?.active_model?.name ?? "sin promover"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                      <div className="space-y-2">
+                        {(registryOverview?.datasets ?? []).slice(0, 4).map((dataset) => (
+                          <div
+                            key={dataset.version_id}
+                            className="rounded-2xl border border-white/10 bg-white/7 px-3 py-3"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="line-clamp-1 text-sm font-medium text-slate-100">
+                                {dataset.name}
+                              </p>
+                              <span className="rounded-full bg-white/8 px-2.5 py-1 text-xs text-slate-300">
+                                {dataset.examples}
+                              </span>
+                            </div>
+                            <p className="mt-2 line-clamp-1 text-xs text-slate-500">
+                              {dataset.sha256.slice(0, 12)} - {dataset.source}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="space-y-2">
+                        {(registryOverview?.models ?? []).slice(0, 4).map((model) => (
+                          <div
+                            key={model.version_id}
+                            className="rounded-2xl border border-white/10 bg-white/7 px-3 py-3"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="line-clamp-1 text-sm font-medium text-slate-100">
+                                {model.name}
+                              </p>
+                              <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-xs text-emerald-200">
+                                {model.status}
+                              </span>
+                            </div>
+                            <p className="mt-2 line-clamp-1 text-xs text-slate-500">
+                              {model.base_model}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {!registryOverview ||
+                    (registryOverview.datasets.length === 0 && registryOverview.models.length === 0) ? (
+                      <p className="mt-4 rounded-2xl border border-white/10 bg-white/7 px-3 py-3 text-sm text-slate-400">
+                        El registry aun no tiene versiones. Inicializalo para crear baseline.
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 

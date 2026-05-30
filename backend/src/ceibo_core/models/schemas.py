@@ -387,6 +387,60 @@ class TrainingPlanResponse(BaseModel):
     steps: list[TrainingPlanStep]
 
 
+class ModelVersionStatus(StrEnum):
+    CANDIDATE = "candidate"
+    EVALUATING = "evaluating"
+    APPROVED = "approved"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class DatasetVersionRecord(BaseModel):
+    version_id: str
+    name: str
+    path: str
+    sha256: str
+    examples: int
+    source: str = "manual"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class DatasetVersionRequest(BaseModel):
+    name: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+    source: str = "manual"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelVersionRecord(BaseModel):
+    version_id: str
+    name: str
+    base_model: str
+    adapter_path: str | None = None
+    dataset_version_id: str | None = None
+    status: ModelVersionStatus = ModelVersionStatus.CANDIDATE
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ModelVersionRequest(BaseModel):
+    name: str = Field(min_length=1)
+    base_model: str = Field(min_length=1)
+    adapter_path: str | None = None
+    dataset_version_id: str | None = None
+    status: ModelVersionStatus = ModelVersionStatus.CANDIDATE
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RegistryOverview(BaseModel):
+    datasets: list[DatasetVersionRecord] = Field(default_factory=list)
+    models: list[ModelVersionRecord] = Field(default_factory=list)
+    active_model: ModelVersionRecord | None = None
+
+
 class CoreStatus(BaseModel):
     service: str
     environment: str

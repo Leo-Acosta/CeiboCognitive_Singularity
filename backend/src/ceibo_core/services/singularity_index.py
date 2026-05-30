@@ -18,6 +18,7 @@ from ceibo_core.models.schemas import (
 )
 from ceibo_core.services.memory import memory_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
+from ceibo_core.services.model_registry import model_registry_service
 from ceibo_core.services.training_data import training_data_service
 from ceibo_core.services.training_runner import training_runner_service
 
@@ -34,6 +35,7 @@ class SingularityIndexService:
         latest_runs = training_runner_service.list_runs(limit=5)
         latest_eval = evaluation_harness_service.latest()
         eval_scores = latest_eval.category_scores if latest_eval else {}
+        registry_overview = await model_registry_service.overview(None, limit=10)
         project_root = training_data_service.project_root()
         curated_dataset = project_root / "training" / "datasets" / "ceibo_instructions.curated.jsonl"
 
@@ -99,11 +101,22 @@ class SingularityIndexService:
             self._category(
                 "Entrenamiento propio",
                 10,
-                self._score_training(training_stats.total_examples, curated_dataset, latest_runs),
+                self._score_training(
+                    training_stats.total_examples,
+                    curated_dataset,
+                    latest_runs,
+                    len(registry_overview.datasets),
+                    len(registry_overview.models),
+                ),
                 [
                     self._signal("Dataset operativo", training_stats.total_examples > 0, f"{training_stats.total_examples} ejemplos"),
                     self._signal("Dataset curado", curated_dataset.exists(), self._count_jsonl(curated_dataset)),
                     self._signal("Runs QLoRA", bool(latest_runs), f"{len(latest_runs)} runs registrados"),
+                    self._signal(
+                        "Registry",
+                        bool(registry_overview.datasets or registry_overview.models),
+                        f"{len(registry_overview.datasets)} datasets / {len(registry_overview.models)} modelos",
+                    ),
                 ],
             ),
             self._category(
@@ -269,12 +282,18 @@ class SingularityIndexService:
         total_examples: int,
         curated_dataset: Path,
         latest_runs: list,
+        dataset_versions: int = 0,
+        model_versions: int = 0,
     ) -> int:
         score = min(35, total_examples * 2)
         if curated_dataset.exists():
             score += 25
         if latest_runs:
             score += 15
+        if dataset_versions:
+            score += 10
+        if model_versions:
+            score += 10
         if any(run.status == TrainingRunStatus.COMPLETED for run in latest_runs):
             score += 25
         return min(100, score)

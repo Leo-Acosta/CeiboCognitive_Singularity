@@ -1,7 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ceibo_core.ai_engine import ceibo_engine
+from ceibo_core.db.session import get_db
 from ceibo_core.models.schemas import (
+    DatasetVersionRecord,
+    DatasetVersionRequest,
     EngineGenerateRequest,
     EngineGenerateResponse,
     EngineStatus,
@@ -10,7 +14,10 @@ from ceibo_core.models.schemas import (
     DatasetCurationRequest,
     ModelCandidate,
     ModelRecommendationRequest,
+    ModelVersionRecord,
+    ModelVersionRequest,
     QloraTrainingRequest,
+    RegistryOverview,
     TeacherReviewRequest,
     TeacherReviewResponse,
     TeacherStatus,
@@ -28,6 +35,7 @@ from ceibo_core.models.schemas import (
 from ceibo_core.services.dataset_curator import dataset_curator_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.model_catalog import model_catalog_service
+from ceibo_core.services.model_registry import model_registry_service
 from ceibo_core.services.teacher_agent import teacher_agent_service
 from ceibo_core.services.training_data import training_data_service
 from ceibo_core.services.training_runner import training_runner_service
@@ -62,6 +70,54 @@ async def generate(request: EngineGenerateRequest) -> EngineGenerateResponse:
 @router.get("/models", response_model=list[ModelCandidate])
 async def list_models() -> list[ModelCandidate]:
     return model_catalog_service.list_models()
+
+
+@router.get("/registry", response_model=RegistryOverview)
+async def registry_overview(
+    db: AsyncSession = Depends(get_db),
+    limit: int = 20,
+) -> RegistryOverview:
+    return await model_registry_service.overview(db, limit=limit)
+
+
+@router.post("/registry/bootstrap", response_model=RegistryOverview)
+async def bootstrap_registry(db: AsyncSession = Depends(get_db)) -> RegistryOverview:
+    return await model_registry_service.bootstrap_seed_registry(db)
+
+
+@router.get("/registry/datasets", response_model=list[DatasetVersionRecord])
+async def list_dataset_versions(
+    db: AsyncSession = Depends(get_db),
+    limit: int = 20,
+) -> list[DatasetVersionRecord]:
+    return await model_registry_service.list_datasets(db, limit=limit)
+
+
+@router.post("/registry/datasets", response_model=DatasetVersionRecord)
+async def register_dataset_version(
+    request: DatasetVersionRequest,
+    db: AsyncSession = Depends(get_db),
+) -> DatasetVersionRecord:
+    try:
+        return await model_registry_service.register_dataset(db, request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/registry/models", response_model=list[ModelVersionRecord])
+async def list_model_versions(
+    db: AsyncSession = Depends(get_db),
+    limit: int = 20,
+) -> list[ModelVersionRecord]:
+    return await model_registry_service.list_models(db, limit=limit)
+
+
+@router.post("/registry/models", response_model=ModelVersionRecord)
+async def register_model_version(
+    request: ModelVersionRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ModelVersionRecord:
+    return await model_registry_service.register_model(db, request)
 
 
 @router.post("/models/recommend", response_model=ModelCandidate)

@@ -9,9 +9,12 @@ from ceibo_core.ai_engine import ceibo_engine
 from ceibo_core.models.schemas import (
     AgentRole,
     ChatRequest,
+    DatasetVersionRequest,
     DatasetCurationRequest,
     HardwareProfile,
     ModelRecommendationRequest,
+    ModelVersionRequest,
+    ModelVersionStatus,
     TaskRequest,
     TeacherReviewRequest,
     TeacherSyntheticRequest,
@@ -26,6 +29,7 @@ from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import EvaluationHarnessService
 from ceibo_core.services.memory import memory_service
 from ceibo_core.services.model_catalog import model_catalog_service
+from ceibo_core.services.model_registry import ModelRegistryService
 from ceibo_core.services.singularity_index import SingularityIndexService
 from ceibo_core.services.tasks import task_store
 from ceibo_core.services.teacher_agent import TeacherAgentService
@@ -299,6 +303,37 @@ async def test_evaluation_harness_runs_core_suites():
     assert {"reasoning", "rag", "security"}.issubset(report.category_scores)
     assert report.results[0].expected_signals
     assert report.status in {"passed", "needs_attention"}
+
+
+@pytest.mark.asyncio
+async def test_model_registry_registers_dataset_and_active_model(monkeypatch):
+    service = ModelRegistryService()
+    monkeypatch.setattr("ceibo_core.services.model_registry.settings.persistence_enabled", False)
+
+    dataset = await service.register_dataset(
+        None,
+        DatasetVersionRequest(
+            name="seed",
+            path="training/datasets/ceibo_seed.jsonl",
+            source="test",
+        ),
+    )
+    model = await service.register_model(
+        None,
+        ModelVersionRequest(
+            name="ceibo-test",
+            base_model="ceibo_local",
+            dataset_version_id=dataset.version_id,
+            status=ModelVersionStatus.ACTIVE,
+        ),
+    )
+    overview = await service.overview(None)
+
+    assert dataset.examples > 0
+    assert len(dataset.sha256) == 64
+    assert model.status == ModelVersionStatus.ACTIVE
+    assert overview.active_model is not None
+    assert overview.active_model.name == "ceibo-test"
 
 
 @pytest.mark.asyncio
