@@ -6,6 +6,7 @@ import pytest
 
 from ceibo_core.agents.registry import agent_registry
 from ceibo_core.ai_engine import ceibo_engine
+from ceibo_core.api.routes.devcore import plan_devcore_change
 from ceibo_core.core.security import assert_permission, task_action_for_goal
 from ceibo_core.db.session import persistence_health
 from ceibo_core.models.schemas import (
@@ -156,6 +157,26 @@ def test_devcore_reports_local_status_and_plan():
     assert status.indexed_files > 0
     assert plan.steps[0].action == "inspect"
     assert "backend/src/ceibo_core/api" in plan.steps[0].target
+
+
+@pytest.mark.asyncio
+async def test_devcore_plan_route_records_audit_and_knowledge(monkeypatch):
+    monkeypatch.setattr("ceibo_core.services.audit.settings.persistence_enabled", False)
+    monkeypatch.setattr("ceibo_core.services.memory.settings.persistence_enabled", False)
+    auth = AuthContext(user_id="devcore-tester", role=UserRole.RESEARCHER, local_dev=False)
+
+    response = await plan_devcore_change(
+        DevCorePlanRequest(goal="agrega tests para DevCore"),
+        db=None,  # type: ignore[arg-type]
+        auth=auth,
+    )
+    audit_events = await audit_trail_service.recent(None, limit=1)
+    knowledge_matches = await knowledge_service.search(None, query=response.plan_id, limit=1)
+
+    assert response.plan_id
+    assert audit_events[0].event_type == "devcore.plan"
+    assert audit_events[0].action == SecurityAction.RUN_DEVCORE_PLAN
+    assert knowledge_matches
 
 
 @pytest.mark.asyncio
@@ -392,11 +413,15 @@ def test_training_runner_prefers_local_qlora_venv(monkeypatch):
 
 def test_rbac_allows_admin_and_blocks_viewer_sensitive_action():
     admin = AuthContext(user_id="admin", role=UserRole.ADMIN)
+    researcher = AuthContext(user_id="researcher", role=UserRole.RESEARCHER)
     viewer = AuthContext(user_id="viewer", role=UserRole.VIEWER)
 
     assert_permission(admin, SecurityAction.PROMOTE_MODEL)
+    assert_permission(researcher, SecurityAction.RUN_DEVCORE_PLAN)
     with pytest.raises(Exception):
         assert_permission(viewer, SecurityAction.PROMOTE_MODEL)
+    with pytest.raises(Exception):
+        assert_permission(viewer, SecurityAction.RUN_DEVCORE_PLAN)
 
 
 def test_task_policy_classifies_infrastructure_and_system_goals():
@@ -455,9 +480,9 @@ async def test_singularity_index_captures_local_history(monkeypatch):
 async def test_evaluation_harness_runs_core_suites():
     report = await EvaluationHarnessService().run()
 
-    assert report.total_cases == 5
+    assert report.total_cases == 6
     assert 0 <= report.average_score <= 100
-    assert {"reasoning", "rag", "security"}.issubset(report.category_scores)
+    assert {"reasoning", "rag", "security", "devcore"}.issubset(report.category_scores)
     assert report.results[0].expected_signals
     assert report.status in {"passed", "needs_attention"}
 

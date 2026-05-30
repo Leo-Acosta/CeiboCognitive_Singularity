@@ -11,6 +11,9 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 - Recomendacion de agente.
 - Ruteo de checks.
 - Automatizacion local segura.
+- Auditoria de planes generados.
+- Persistencia de planes como Knowledge Base.
+- Caso dedicado en Evaluation Harness.
 
 ## Endpoints
 
@@ -36,3 +39,10 @@ Ejemplo:
 
 La escritura y ejecucion controlada quedan para sprints posteriores, detras de
 gates de seguridad, auditoria y evaluacion.
+
+## Integraciones
+
+- Audit Trail registra `devcore.plan`.
+- Knowledge Base guarda el plan serializado con tags `devcore` y `plan`.
+- Evaluation Harness ejecuta `devcore.safe-planning`.
+- RBAC permite planificacion DevCore a `admin`, `operator` y `researcher`.

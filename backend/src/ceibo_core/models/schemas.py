@@ -56,6 +56,7 @@ class SecurityAction(StrEnum):
     CREATE_TASK = "create_task"
     RUN_INFRA_TASK = "run_infra_task"
     RUN_SYSTEM_TASK = "run_system_task"
+    RUN_DEVCORE_PLAN = "run_devcore_plan"
 
 
 class AuthContext(BaseModel):

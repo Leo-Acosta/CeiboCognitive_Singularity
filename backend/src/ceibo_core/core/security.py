@@ -18,11 +18,13 @@ ROLE_PERMISSIONS: dict[UserRole, set[SecurityAction]] = {
         SecurityAction.START_TRAINING,
         SecurityAction.CREATE_TASK,
         SecurityAction.RUN_INFRA_TASK,
+        SecurityAction.RUN_DEVCORE_PLAN,
     },
     UserRole.RESEARCHER: {
         SecurityAction.READ_STATUS,
         SecurityAction.RUN_EVALUATION,
         SecurityAction.CREATE_TASK,
+        SecurityAction.RUN_DEVCORE_PLAN,
     },
     UserRole.VIEWER: {
         SecurityAction.READ_STATUS,
