@@ -15,6 +15,8 @@ La version actual incluye:
 - Model/Dataset Registry v1 con gate de promocion.
 - Agent Orchestration v1 con trazas y handoffs.
 - Long-running Jobs v1 para tareas, evaluaciones y training.
+- Alembic para migraciones formales de base de datos.
+- GitHub Actions para backend tests, frontend build y validacion Compose.
 
 ## Checks obligatorios
 
@@ -29,6 +31,7 @@ El check ejecuta:
 - `python -m pytest backend\tests`
 - `npm run build` dentro de `frontend/`
 - Validacion de archivos base de release
+- `docker compose config` cuando Docker esta disponible
 
 ## Arranque local recomendado
 
@@ -54,6 +57,16 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
+Migraciones manuales:
+
+```powershell
+cd backend
+alembic upgrade head
+```
+
+En Docker Compose, la API ejecuta `alembic upgrade head` antes de iniciar
+Uvicorn.
+
 ## Variables criticas
 
 Antes de usar fuera de desarrollo local:
@@ -66,6 +79,7 @@ Antes de usar fuera de desarrollo local:
 - Confirmar `EVENT_BUS_ENABLED`.
 - Confirmar `MEMORY_VECTOR_ENABLED`.
 - Definir `NEXT_PUBLIC_API_URL` para el frontend.
+- Confirmar que `alembic upgrade head` corre contra la base objetivo.
 
 ## Smoke test manual
 
@@ -78,6 +92,7 @@ Antes de usar fuera de desarrollo local:
 7. Ejecutar `POST /api/v1/engine/evaluations/run`.
 8. Revisar `GET /api/v1/status/audit`.
 9. Verificar el dashboard con el backend local.
+10. Ejecutar `docker compose config`.
 
 ## Politica de secretos
 
@@ -87,10 +102,12 @@ no reemplaza la revision humana antes de publicar datasets o documentos.
 
 ## Criterio de salida
 
-Sprint 12 se considera listo cuando:
+Sprint 13 se considera listo cuando:
 
 - La suite backend pasa.
 - El build frontend pasa.
+- `docker compose config` pasa.
 - `.env.example` documenta las variables necesarias.
 - README lista endpoints y flujo local vigente.
+- GitHub Actions queda configurado en `.github/workflows/ci.yml`.
 - El repo privado queda con commit y push de release readiness.

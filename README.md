@@ -60,6 +60,15 @@ Checks de release:
 .\scripts\check.ps1
 ```
 
+Migraciones:
+
+```powershell
+cd backend
+alembic upgrade head
+```
+
+El `docker-compose.yml` ejecuta migraciones Alembic antes de levantar la API.
+
 API:
 
 - `GET /health`

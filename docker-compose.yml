@@ -7,13 +7,24 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - redis
-      - qdrant
-      - nats
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      nats:
+        condition: service_started
     volumes:
       - ./backend/src:/app/src
-    command: uvicorn ceibo_core.main:app --host 0.0.0.0 --port 8000 --reload
+      - ./backend/migrations:/app/migrations
+      - ./backend/alembic.ini:/app/alembic.ini
+    command: sh -c "alembic upgrade head && uvicorn ceibo_core.main:app --host 0.0.0.0 --port 8000 --reload"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
 
   frontend:
     build:
@@ -24,7 +35,8 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   postgres:
     image: postgres:16-alpine
@@ -37,12 +49,22 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ceibo -d ceibo_core"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     container_name: ceibo-core-redis
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   qdrant:
     image: qdrant/qdrant:v1.9.2
