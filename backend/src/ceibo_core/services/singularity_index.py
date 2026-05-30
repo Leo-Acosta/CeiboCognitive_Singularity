@@ -1,10 +1,18 @@
 from pathlib import Path
+from collections import deque
+
+import structlog
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ceibo_core.agents.registry import agent_registry
 from ceibo_core.core.config import settings
+from ceibo_core.db.models import SingularitySnapshot
 from ceibo_core.models.schemas import (
     SingularityCategoryScore,
     SingularityIndex,
+    SingularitySnapshotRecord,
     SingularitySignal,
     TrainingRunStatus,
 )
@@ -12,8 +20,13 @@ from ceibo_core.services.memory import memory_service
 from ceibo_core.services.training_data import training_data_service
 from ceibo_core.services.training_runner import training_runner_service
 
+logger = structlog.get_logger()
+
 
 class SingularityIndexService:
+    def __init__(self) -> None:
+        self._fallback_snapshots: deque[SingularitySnapshotRecord] = deque(maxlen=100)
+
     async def calculate(self) -> SingularityIndex:
         memory_status = await memory_service.status()
         training_stats = await training_data_service.stats()
@@ -161,6 +174,60 @@ class SingularityIndexService:
             next_steps=self._next_steps(categories),
         )
 
+    async def capture_snapshot(
+        self,
+        db: AsyncSession,
+        metadata: dict | None = None,
+    ) -> SingularitySnapshotRecord:
+        current = await self.calculate()
+        snapshot = SingularitySnapshotRecord(
+            **current.model_dump(),
+            snapshot_id=self._snapshot_id(current.updated_at),
+            created_at=current.updated_at,
+        )
+        self._fallback_snapshots.appendleft(snapshot)
+
+        if not settings.persistence_enabled:
+            return snapshot
+
+        try:
+            record = SingularitySnapshot(
+                id=snapshot.snapshot_id,
+                index=snapshot.index,
+                maturity_level=snapshot.maturity_level,
+                summary=snapshot.summary,
+                categories=[category.model_dump() for category in snapshot.categories],
+                next_steps=snapshot.next_steps,
+                snapshot_metadata=metadata or {},
+                created_at=snapshot.created_at,
+            )
+            db.add(record)
+            await db.commit()
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.warning("singularity_snapshot_failed", error=str(exc))
+        return snapshot
+
+    async def history(
+        self,
+        db: AsyncSession,
+        limit: int = 20,
+    ) -> list[SingularitySnapshotRecord]:
+        if not settings.persistence_enabled:
+            return list(self._fallback_snapshots)[:limit]
+
+        try:
+            result = await db.execute(
+                select(SingularitySnapshot)
+                .order_by(SingularitySnapshot.created_at.desc())
+                .limit(limit)
+            )
+            records = result.scalars().all()
+            return [self._from_record(record) for record in records]
+        except SQLAlchemyError as exc:
+            logger.warning("singularity_history_failed", error=str(exc))
+            return list(self._fallback_snapshots)[:limit]
+
     def _category(
         self,
         category: str,
@@ -224,6 +291,24 @@ class SingularityIndexService:
             f"Mejorar {category.category}: subir score actual {category.score}/100."
             for category in weakest
         ]
+
+    def _snapshot_id(self, updated_at) -> str:
+        return f"si-{updated_at.strftime('%Y%m%d-%H%M%S-%f')}"
+
+    def _from_record(self, record: SingularitySnapshot) -> SingularitySnapshotRecord:
+        return SingularitySnapshotRecord(
+            snapshot_id=record.id,
+            index=record.index,
+            maturity_level=record.maturity_level,
+            summary=record.summary,
+            categories=[
+                SingularityCategoryScore.model_validate(category)
+                for category in record.categories
+            ],
+            next_steps=list(record.next_steps),
+            updated_at=record.created_at,
+            created_at=record.created_at,
+        )
 
 
 singularity_index_service = SingularityIndexService()

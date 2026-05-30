@@ -401,3 +401,8 @@ class SingularityIndex(BaseModel):
     categories: list[SingularityCategoryScore]
     next_steps: list[str] = Field(default_factory=list)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class SingularitySnapshotRecord(SingularityIndex):
+    snapshot_id: str
+    created_at: datetime

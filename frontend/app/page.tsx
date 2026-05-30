@@ -86,6 +86,11 @@ type SingularityIndex = {
   updated_at: string;
 };
 
+type SingularitySnapshotRecord = SingularityIndex & {
+  snapshot_id: string;
+  created_at: string;
+};
+
 type TrainingExample = {
   example_id: string;
   instruction: string;
@@ -206,6 +211,8 @@ export default function Home() {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [coreStatus, setCoreStatus] = useState<CoreStatus | null>(null);
   const [singularityIndex, setSingularityIndex] = useState<SingularityIndex | null>(null);
+  const [singularityHistory, setSingularityHistory] = useState<SingularitySnapshotRecord[]>([]);
+  const [isCapturingSnapshot, setIsCapturingSnapshot] = useState(false);
   const [trainingExamples, setTrainingExamples] = useState<TrainingExample[]>([]);
   const [trainingStats, setTrainingStats] = useState<TrainingDatasetStats | null>(null);
   const [correction, setCorrection] = useState("");
@@ -288,6 +295,7 @@ export default function Home() {
       const [
         statusResponse,
         singularityResponse,
+        singularityHistoryResponse,
         tasksResponse,
         examplesResponse,
         statsResponse,
@@ -295,6 +303,7 @@ export default function Home() {
       ] = await Promise.all([
         fetch(`${apiUrl}/api/v1/status`),
         fetch(`${apiUrl}/api/v1/status/singularity-index`),
+        fetch(`${apiUrl}/api/v1/status/singularity-index/history?limit=6`),
         fetch(`${apiUrl}/api/v1/tasks`),
         fetch(`${apiUrl}/api/v1/engine/training/examples?limit=5`),
         fetch(`${apiUrl}/api/v1/engine/training/stats`),
@@ -305,6 +314,11 @@ export default function Home() {
       }
       if (singularityResponse.ok) {
         setSingularityIndex((await singularityResponse.json()) as SingularityIndex);
+      }
+      if (singularityHistoryResponse.ok) {
+        setSingularityHistory(
+          (await singularityHistoryResponse.json()) as SingularitySnapshotRecord[],
+        );
       }
       if (tasksResponse.ok) {
         setTasks((await tasksResponse.json()) as TaskRecord[]);
@@ -320,6 +334,30 @@ export default function Home() {
       }
     } catch {
       setConnectionState("offline");
+    }
+  }
+
+  async function captureSingularitySnapshot() {
+    if (isCapturingSnapshot) {
+      return;
+    }
+
+    setIsCapturingSnapshot(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/status/singularity-index/snapshots`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error(`API responded ${response.status}`);
+      }
+      const snapshot = (await response.json()) as SingularitySnapshotRecord;
+      setSingularityHistory((current) => [snapshot, ...current].slice(0, 6));
+      setSingularityIndex(snapshot);
+      setConnectionState("ready");
+    } catch {
+      setConnectionState("offline");
+    } finally {
+      setIsCapturingSnapshot(false);
     }
   }
 
@@ -862,6 +900,52 @@ export default function Home() {
                         </div>
                       </div>
                     ))}
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                          Historico
+                        </p>
+                        <p className="mt-1 text-sm text-slate-300">
+                          Snapshots del indice para medir evolucion por sprint.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void captureSingularitySnapshot()}
+                        disabled={isCapturingSnapshot}
+                        className="rounded-full border border-[#8be9ff]/25 bg-[#8be9ff]/10 px-4 py-2 text-sm text-[#dff8ff] transition hover:bg-[#8be9ff]/15 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Capturar estado
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                      {singularityHistory.length === 0 ? (
+                        <p className="rounded-2xl border border-white/10 bg-white/7 px-3 py-3 text-sm text-slate-400 sm:col-span-3">
+                          Todavia no hay snapshots. Captura el primer estado para iniciar la serie.
+                        </p>
+                      ) : (
+                        singularityHistory.map((snapshot) => (
+                          <div
+                            key={snapshot.snapshot_id}
+                            className="rounded-2xl border border-white/10 bg-white/7 px-3 py-3"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-lg font-semibold text-white">{snapshot.index}%</p>
+                              <span className="rounded-full bg-white/8 px-2.5 py-1 text-xs text-slate-300">
+                                {snapshot.maturity_level}
+                              </span>
+                            </div>
+                            <p className="mt-2 line-clamp-1 text-xs text-slate-500">
+                              {new Date(snapshot.created_at).toLocaleString()}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
 

@@ -277,6 +277,19 @@ async def test_singularity_index_returns_weighted_progress():
 
 
 @pytest.mark.asyncio
+async def test_singularity_index_captures_local_history(monkeypatch):
+    service = SingularityIndexService()
+    monkeypatch.setattr("ceibo_core.services.singularity_index.settings.persistence_enabled", False)
+
+    snapshot = await service.capture_snapshot(None)  # type: ignore[arg-type]
+    history = await service.history(None, limit=5)  # type: ignore[arg-type]
+
+    assert history
+    assert history[0].snapshot_id == snapshot.snapshot_id
+    assert history[0].index == snapshot.index
+
+
+@pytest.mark.asyncio
 async def test_teacher_agent_reviews_ceibo_response_with_structured_feedback(monkeypatch):
     service = TeacherAgentService()
 

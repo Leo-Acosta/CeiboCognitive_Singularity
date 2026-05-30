@@ -75,3 +75,18 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
     )
+
+
+class SingularitySnapshot(Base):
+    __tablename__ = "singularity_snapshots"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: str(uuid4()))
+    index: Mapped[int] = mapped_column(Integer, index=True)
+    maturity_level: Mapped[str] = mapped_column(String(40), index=True)
+    summary: Mapped[str] = mapped_column(Text)
+    categories: Mapped[list] = mapped_column(JSONB, default=list)
+    next_steps: Mapped[list] = mapped_column(JSONB, default=list)
+    snapshot_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
+    )
