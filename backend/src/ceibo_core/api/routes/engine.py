@@ -5,6 +5,7 @@ from ceibo_core.models.schemas import (
     EngineGenerateRequest,
     EngineGenerateResponse,
     EngineStatus,
+    EvaluationSuiteReport,
     DatasetCurationReport,
     DatasetCurationRequest,
     ModelCandidate,
@@ -25,6 +26,7 @@ from ceibo_core.models.schemas import (
     TrainingRunnerReport,
 )
 from ceibo_core.services.dataset_curator import dataset_curator_service
+from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.model_catalog import model_catalog_service
 from ceibo_core.services.teacher_agent import teacher_agent_service
 from ceibo_core.services.training_data import training_data_service
@@ -36,6 +38,16 @@ router = APIRouter(prefix="/engine", tags=["engine"])
 @router.get("/status", response_model=EngineStatus)
 async def engine_status() -> EngineStatus:
     return ceibo_engine.status()
+
+
+@router.post("/evaluations/run", response_model=EvaluationSuiteReport)
+async def run_evaluation_suite() -> EvaluationSuiteReport:
+    return await evaluation_harness_service.run()
+
+
+@router.get("/evaluations/latest", response_model=EvaluationSuiteReport | None)
+async def latest_evaluation_suite() -> EvaluationSuiteReport | None:
+    return evaluation_harness_service.latest()
 
 
 @router.post("/generate", response_model=EngineGenerateResponse)

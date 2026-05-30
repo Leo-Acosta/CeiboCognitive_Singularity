@@ -268,6 +268,29 @@ class TeacherSyntheticResponse(BaseModel):
     raw_output: str = ""
 
 
+class EvaluationCaseResult(BaseModel):
+    case_id: str
+    category: str
+    prompt: str
+    passed: bool
+    score: int = Field(ge=0, le=100)
+    expected_signals: list[str] = Field(default_factory=list)
+    observed_signals: list[str] = Field(default_factory=list)
+    response_preview: str = ""
+    notes: list[str] = Field(default_factory=list)
+
+
+class EvaluationSuiteReport(BaseModel):
+    run_id: str
+    status: str
+    total_cases: int
+    passed_cases: int
+    average_score: int = Field(ge=0, le=100)
+    category_scores: dict[str, int] = Field(default_factory=dict)
+    results: list[EvaluationCaseResult] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class TrainingRunStatus(StrEnum):
     READY = "ready"
     BLOCKED = "blocked"

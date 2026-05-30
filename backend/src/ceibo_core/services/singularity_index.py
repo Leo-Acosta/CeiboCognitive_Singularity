@@ -17,6 +17,7 @@ from ceibo_core.models.schemas import (
     TrainingRunStatus,
 )
 from ceibo_core.services.memory import memory_service
+from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.training_data import training_data_service
 from ceibo_core.services.training_runner import training_runner_service
 
@@ -31,6 +32,8 @@ class SingularityIndexService:
         memory_status = await memory_service.status()
         training_stats = await training_data_service.stats()
         latest_runs = training_runner_service.list_runs(limit=5)
+        latest_eval = evaluation_harness_service.latest()
+        eval_scores = latest_eval.category_scores if latest_eval else {}
         project_root = training_data_service.project_root()
         curated_dataset = project_root / "training" / "datasets" / "ceibo_instructions.curated.jsonl"
 
@@ -38,16 +41,20 @@ class SingularityIndexService:
             self._category(
                 "Razonamiento",
                 10,
-                35,
+                max(35, eval_scores.get("reasoning", 0)),
                 [
                     self._signal("Motor local activo", True, settings.default_llm_provider),
                     self._signal("Modo RAG/reglas", "rag" in settings.ceibo_engine_mode, settings.ceibo_engine_mode),
+                    self._signal("Evaluation Harness", bool(latest_eval), self._eval_detail(latest_eval, "reasoning")),
                 ],
             ),
             self._category(
                 "Memoria",
                 10,
-                self._score_memory(memory_status.vector_enabled, memory_status.local_items),
+                max(
+                    self._score_memory(memory_status.vector_enabled, memory_status.local_items),
+                    eval_scores.get("rag", 0),
+                ),
                 [
                     self._signal("Backend de memoria", memory_status.available, memory_status.backend),
                     self._signal(
@@ -55,6 +62,7 @@ class SingularityIndexService:
                         memory_status.vector_enabled,
                         memory_status.collection_name,
                     ),
+                    self._signal("RAG eval", bool(latest_eval), self._eval_detail(latest_eval, "rag")),
                 ],
             ),
             self._category(
@@ -110,11 +118,12 @@ class SingularityIndexService:
             self._category(
                 "Seguridad",
                 10,
-                45,
+                max(45, eval_scores.get("security", 0)),
                 [
                     self._signal("Auditoria base", True, "modelos y servicios preparados"),
                     self._signal("RBAC completo", False, "pendiente implementacion"),
                     self._signal("System control off", not settings.enable_system_control, "seguro por defecto"),
+                    self._signal("Security eval", bool(latest_eval), self._eval_detail(latest_eval, "security")),
                 ],
             ),
             self._category(
@@ -284,6 +293,14 @@ class SingularityIndexService:
         if index >= 35:
             return "foundation"
         return "seed"
+
+    def _eval_detail(self, latest_eval, category: str) -> str:
+        if not latest_eval:
+            return "pendiente"
+        score = latest_eval.category_scores.get(category)
+        if score is None:
+            return "sin casos"
+        return f"{score}/100 en {latest_eval.run_id}"
 
     def _next_steps(self, categories: list[SingularityCategoryScore]) -> list[str]:
         weakest = sorted(categories, key=lambda category: category.score)[:4]

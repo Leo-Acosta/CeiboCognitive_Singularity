@@ -23,6 +23,7 @@ from ceibo_core.models.schemas import (
 )
 from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
+from ceibo_core.services.evaluation_harness import EvaluationHarnessService
 from ceibo_core.services.memory import memory_service
 from ceibo_core.services.model_catalog import model_catalog_service
 from ceibo_core.services.singularity_index import SingularityIndexService
@@ -287,6 +288,17 @@ async def test_singularity_index_captures_local_history(monkeypatch):
     assert history
     assert history[0].snapshot_id == snapshot.snapshot_id
     assert history[0].index == snapshot.index
+
+
+@pytest.mark.asyncio
+async def test_evaluation_harness_runs_core_suites():
+    report = await EvaluationHarnessService().run()
+
+    assert report.total_cases == 5
+    assert 0 <= report.average_score <= 100
+    assert {"reasoning", "rag", "security"}.issubset(report.category_scores)
+    assert report.results[0].expected_signals
+    assert report.status in {"passed", "needs_attention"}
 
 
 @pytest.mark.asyncio

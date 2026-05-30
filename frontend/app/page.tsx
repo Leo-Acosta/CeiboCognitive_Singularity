@@ -155,6 +155,29 @@ type TeacherReviewResponse = {
   saved_example: TrainingExample | null;
 };
 
+type EvaluationCaseResult = {
+  case_id: string;
+  category: string;
+  prompt: string;
+  passed: boolean;
+  score: number;
+  expected_signals: string[];
+  observed_signals: string[];
+  response_preview: string;
+  notes: string[];
+};
+
+type EvaluationSuiteReport = {
+  run_id: string;
+  status: string;
+  total_cases: number;
+  passed_cases: number;
+  average_score: number;
+  category_scores: Record<string, number>;
+  results: EvaluationCaseResult[];
+  created_at: string;
+};
+
 type TrainingRunnerReport = {
   run_id: string;
   status: "ready" | "blocked" | "running" | "completed" | "failed";
@@ -222,6 +245,8 @@ export default function Home() {
   const [isCurating, setIsCurating] = useState(false);
   const [teacherStatus, setTeacherStatus] = useState<TeacherStatus | null>(null);
   const [teacherReview, setTeacherReview] = useState<TeacherReviewResponse | null>(null);
+  const [evaluationReport, setEvaluationReport] = useState<EvaluationSuiteReport | null>(null);
+  const [isEvaluating, setIsEvaluating] = useState(false);
   const [teacherTopic, setTeacherTopic] = useState("CEIBO CORE entrenamiento local");
   const [isTeacherRunning, setIsTeacherRunning] = useState(false);
   const [trainingRun, setTrainingRun] = useState<TrainingRunnerReport | null>(null);
@@ -300,6 +325,7 @@ export default function Home() {
         examplesResponse,
         statsResponse,
         teacherStatusResponse,
+        evaluationResponse,
       ] = await Promise.all([
         fetch(`${apiUrl}/api/v1/status`),
         fetch(`${apiUrl}/api/v1/status/singularity-index`),
@@ -308,6 +334,7 @@ export default function Home() {
         fetch(`${apiUrl}/api/v1/engine/training/examples?limit=5`),
         fetch(`${apiUrl}/api/v1/engine/training/stats`),
         fetch(`${apiUrl}/api/v1/engine/teacher/status`),
+        fetch(`${apiUrl}/api/v1/engine/evaluations/latest`),
       ]);
       if (statusResponse.ok) {
         setCoreStatus((await statusResponse.json()) as CoreStatus);
@@ -332,8 +359,43 @@ export default function Home() {
       if (teacherStatusResponse.ok) {
         setTeacherStatus((await teacherStatusResponse.json()) as TeacherStatus);
       }
+      if (evaluationResponse.ok) {
+        const result = await evaluationResponse.json();
+        setEvaluationReport(result as EvaluationSuiteReport | null);
+      }
     } catch {
       setConnectionState("offline");
+    }
+  }
+
+  async function runEvaluationSuite() {
+    if (isEvaluating) {
+      return;
+    }
+
+    setIsEvaluating(true);
+    setTrainingNotice("");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/evaluations/run`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error(`API responded ${response.status}`);
+      }
+      const report = (await response.json()) as EvaluationSuiteReport;
+      setEvaluationReport(report);
+      setTrainingNotice(`Evaluation Harness: ${report.average_score}/100.`);
+
+      const singularityResponse = await fetch(`${apiUrl}/api/v1/status/singularity-index`);
+      if (singularityResponse.ok) {
+        setSingularityIndex((await singularityResponse.json()) as SingularityIndex);
+      }
+      setConnectionState("ready");
+    } catch {
+      setConnectionState("offline");
+      setTrainingNotice("No pude ejecutar el Evaluation Harness.");
+    } finally {
+      setIsEvaluating(false);
     }
   }
 
@@ -946,6 +1008,107 @@ export default function Home() {
                         ))
                       )}
                     </div>
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                          Evaluation Harness
+                        </p>
+                        <p className="mt-1 text-sm text-slate-300">
+                          Pruebas reproducibles de razonamiento, RAG y seguridad.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void runEvaluationSuite()}
+                        disabled={isEvaluating}
+                        className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 transition hover:bg-emerald-300/15 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Ejecutar evals
+                      </button>
+                    </div>
+
+                    {evaluationReport ? (
+                      <div className="mt-4 space-y-3">
+                        <div className="grid gap-2 sm:grid-cols-4">
+                          {[
+                            ["Score", `${evaluationReport.average_score}/100`],
+                            ["Casos", `${evaluationReport.passed_cases}/${evaluationReport.total_cases}`],
+                            ["Estado", evaluationReport.status],
+                            ["Run", evaluationReport.run_id.split("-").slice(0, 2).join("-")],
+                          ].map(([label, value]) => (
+                            <div
+                              key={label}
+                              className="rounded-2xl border border-white/10 bg-white/7 px-3 py-3"
+                            >
+                              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                                {label}
+                              </p>
+                              <p className="mt-2 line-clamp-1 text-sm font-semibold text-slate-100">
+                                {value}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          {Object.entries(evaluationReport.category_scores).map(
+                            ([category, score]) => (
+                              <div
+                                key={category}
+                                className="rounded-2xl border border-white/10 bg-white/7 px-3 py-3"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-sm font-medium capitalize text-slate-200">
+                                    {category}
+                                  </p>
+                                  <span className="text-sm text-slate-300">{score}</span>
+                                </div>
+                                <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                                  <div
+                                    className="h-full rounded-full bg-emerald-300"
+                                    style={{ width: `${score}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ),
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          {evaluationReport.results.slice(0, 4).map((result) => (
+                            <div
+                              key={result.case_id}
+                              className="rounded-2xl border border-white/10 bg-white/7 px-3 py-3"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="line-clamp-1 text-sm font-medium text-slate-100">
+                                  {result.case_id}
+                                </p>
+                                <span
+                                  className={`rounded-full px-2.5 py-1 text-xs ${
+                                    result.passed
+                                      ? "bg-emerald-300/10 text-emerald-200"
+                                      : "bg-amber-300/10 text-amber-200"
+                                  }`}
+                                >
+                                  {result.score}
+                                </span>
+                              </div>
+                              <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">
+                                {result.response_preview}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-4 rounded-2xl border border-white/10 bg-white/7 px-3 py-3 text-sm text-slate-400">
+                        Todavia no hay evaluaciones. Ejecuta el primer suite para crear baseline.
+                      </p>
+                    )}
                   </div>
                 </div>
 
