@@ -1,25 +1,37 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
 from ceibo_core.models.schemas import (
+    DevCoreExecutionRequest,
     DevCoreParseRequest,
     DevCorePatchApplyRequest,
     DevCorePatchApplyResponse,
     DevCorePatchChange,
     DevCorePatchPlanFile,
+    DevCorePatchRollbackRequest,
+    DevCorePatchRollbackResponse,
+    DevCorePatchVerifyRequest,
+    DevCorePatchVerifyResponse,
     DevCoreValidationIssue,
 )
 from ceibo_core.services.devcore import devcore_service
+from ceibo_core.services.devcore_execution import CONFIRMATION_PHRASE, devcore_execution_sandbox
 
 
 CONFIRM_PATCH_PHRASE = "APPLY_PATCH"
+CONFIRM_ROLLBACK_PHRASE = "ROLLBACK_PATCH"
 MAX_PATCH_CONTENT_CHARS = 200_000
+
+
+type SnapshotFile = dict[str, str | bool]
 
 
 class DevCorePatchApplyGate:
     def __init__(self) -> None:
         self.workspace_root = Path.cwd().resolve()
+        self.snapshots: dict[str, dict[str, object]] = {}
 
     def apply(self, request: DevCorePatchApplyRequest) -> DevCorePatchApplyResponse:
         parsed = devcore_service.parse(DevCoreParseRequest(message=request.goal))
@@ -84,6 +96,7 @@ class DevCorePatchApplyGate:
                 validation_issues=validation_issues,
             )
 
+        snapshot_id = self._create_snapshot(request.patch_plan_id, request.proposed_changes)
         applied_files: list[str] = []
         for change in request.proposed_changes:
             target = self._resolve_workspace_path(change.path)
@@ -99,7 +112,75 @@ class DevCorePatchApplyGate:
             cyber_category=parsed.cyber_category,
             validation_issues=validation_issues,
             applied_files=applied_files,
+            snapshot_id=snapshot_id,
             applies_changes=True,
+        )
+
+    def rollback(self, request: DevCorePatchRollbackRequest) -> DevCorePatchRollbackResponse:
+        validation_issues: list[DevCoreValidationIssue] = []
+        if request.confirmation_phrase != CONFIRM_ROLLBACK_PHRASE:
+            validation_issues.append(
+                DevCoreValidationIssue(
+                    severity="warning",
+                    code="patch_rollback_confirmation_required",
+                    message=f"Para revertir envia confirmation_phrase={CONFIRM_ROLLBACK_PHRASE}.",
+                )
+            )
+            return self._rollback_response(request, "confirmation_required", validation_issues)
+
+        snapshot = self.snapshots.get(request.snapshot_id)
+        if snapshot is None:
+            validation_issues.append(
+                DevCoreValidationIssue(
+                    severity="error",
+                    code="patch_snapshot_not_found",
+                    message="No existe snapshot aplicable para ese snapshot_id.",
+                )
+            )
+            return self._rollback_response(request, "blocked", validation_issues)
+
+        restored_files: list[str] = []
+        deleted_files: list[str] = []
+        for file_state in snapshot["files"]:  # type: ignore[index]
+            path = str(file_state["path"])
+            target = self._resolve_workspace_path(path)
+            if bool(file_state["existed"]):
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(str(file_state["content"]), encoding="utf-8")
+                restored_files.append(path)
+            elif target.exists():
+                target.unlink()
+                deleted_files.append(path)
+
+        return self._rollback_response(
+            request,
+            "rolled_back",
+            validation_issues,
+            restored_files=restored_files,
+            deleted_files=deleted_files,
+            applies_changes=True,
+        )
+
+    def verify(self, request: DevCorePatchVerifyRequest) -> DevCorePatchVerifyResponse:
+        execution = devcore_execution_sandbox.run(
+            DevCoreExecutionRequest(
+                command=request.command,
+                working_directory=request.working_directory,
+                confirmation_phrase=CONFIRMATION_PHRASE,
+                timeout_seconds=request.timeout_seconds,
+            )
+        )
+        return DevCorePatchVerifyResponse(
+            command=request.command,
+            status=execution.status,
+            exit_code=execution.exit_code,
+            stdout=execution.stdout,
+            stderr=execution.stderr,
+            validation_issues=execution.validation_issues,
+            audit_notes=[
+                "Patch verification usa Execution Sandbox v1 con allowlist.",
+                *execution.audit_notes,
+            ],
         )
 
     def _validate_plan_files(self, files: list[DevCorePatchPlanFile]) -> list[DevCoreValidationIssue]:
@@ -215,6 +296,25 @@ class DevCorePatchApplyGate:
             )
         return issues
 
+    def _create_snapshot(self, patch_plan_id: str, changes: list[DevCorePatchChange]) -> str:
+        snapshot_id = str(uuid4())
+        files: list[SnapshotFile] = []
+        for change in changes:
+            target = self._resolve_workspace_path(change.path)
+            existed = target.exists()
+            files.append(
+                {
+                    "path": change.path.replace("\\", "/"),
+                    "existed": existed,
+                    "content": target.read_text(encoding="utf-8") if existed else "",
+                }
+            )
+        self.snapshots[snapshot_id] = {
+            "patch_plan_id": patch_plan_id,
+            "files": files,
+        }
+        return snapshot_id
+
     def _resolve_workspace_path(self, path: str) -> Path:
         target = (self.workspace_root / path).resolve()
         target.relative_to(self.workspace_root)
@@ -229,6 +329,7 @@ class DevCorePatchApplyGate:
         cyber_category: str,
         validation_issues: list[DevCoreValidationIssue],
         applied_files: list[str] | None = None,
+        snapshot_id: str | None = None,
         applies_changes: bool = False,
     ) -> DevCorePatchApplyResponse:
         return DevCorePatchApplyResponse(
@@ -238,6 +339,7 @@ class DevCorePatchApplyGate:
             policy_action=policy_action,
             cyber_category=cyber_category,
             applied_files=applied_files or [],
+            snapshot_id=snapshot_id,
             suggested_tests=self._tests_for_goal(request.goal.lower()),
             validation_issues=validation_issues,
             audit_notes=[
@@ -245,6 +347,28 @@ class DevCorePatchApplyGate:
                 "Solo se permiten create/modify dentro del workspace.",
                 "Delete, paths absolutos, .git y escapes del workspace quedan bloqueados.",
                 "Patch Preflight v1 bloquea create sobre archivos existentes y modify sobre archivos ausentes.",
+            ],
+            applies_changes=applies_changes,
+        )
+
+    def _rollback_response(
+        self,
+        request: DevCorePatchRollbackRequest,
+        status: str,
+        validation_issues: list[DevCoreValidationIssue],
+        restored_files: list[str] | None = None,
+        deleted_files: list[str] | None = None,
+        applies_changes: bool = False,
+    ) -> DevCorePatchRollbackResponse:
+        return DevCorePatchRollbackResponse(
+            snapshot_id=request.snapshot_id,
+            status=status,
+            restored_files=restored_files or [],
+            deleted_files=deleted_files or [],
+            validation_issues=validation_issues,
+            audit_notes=[
+                "Rollback v1 restaura el snapshot previo capturado por Apply Gate.",
+                "Rollback exige confirmation_phrase=ROLLBACK_PATCH.",
             ],
             applies_changes=applies_changes,
         )

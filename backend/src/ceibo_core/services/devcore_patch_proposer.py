@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ceibo_core.models.schemas import (
     DevCoreParseRequest,
     DevCoreParsedParameter,
@@ -13,6 +15,9 @@ from ceibo_core.services.devcore import devcore_service
 
 
 class DevCorePatchProposer:
+    def __init__(self) -> None:
+        self.workspace_root = Path.cwd().resolve()
+
     def propose(self, request: DevCorePatchProposeRequest) -> DevCorePatchProposeResponse:
         parsed = devcore_service.parse(DevCoreParseRequest(message=request.goal, context=request.context))
         issues = list(parsed.validation_issues)
@@ -51,7 +56,10 @@ class DevCorePatchProposer:
                     DevCorePatchChange(
                         path=file.path,
                         change_type=file.change_type,
-                        content=self._fastapi_route_content(endpoint_path, http_method),
+                        content=self._content_for_change(
+                            file,
+                            self._fastapi_route_content(endpoint_path, http_method),
+                        ),
                     )
                 )
             elif file.path.endswith(".py") and "tests" in file.path.replace("\\", "/"):
@@ -59,7 +67,10 @@ class DevCorePatchProposer:
                     DevCorePatchChange(
                         path=file.path,
                         change_type=file.change_type,
-                        content=self._pytest_content(file.path, endpoint_path, http_method),
+                        content=self._content_for_change(
+                            file,
+                            self._pytest_content(file.path, endpoint_path, http_method),
+                        ),
                     )
                 )
             elif file.path.endswith(".md"):
@@ -67,10 +78,29 @@ class DevCorePatchProposer:
                     DevCorePatchChange(
                         path=file.path,
                         change_type=file.change_type,
-                        content="# DevCore Proposed Change\n\nDescribe el cambio propuesto antes de aplicar.\n",
+                        content=self._content_for_change(
+                            file,
+                            "# DevCore Proposed Change\n\nDescribe el cambio propuesto antes de aplicar.\n",
+                        ),
                     )
                 )
         return changes
+
+    def _content_for_change(self, file: DevCorePatchPlanFile, generated_content: str) -> str:
+        if file.change_type != "modify":
+            return generated_content
+        target = (self.workspace_root / file.path).resolve()
+        try:
+            target.relative_to(self.workspace_root)
+        except ValueError:
+            return generated_content
+        if not target.exists() or not target.is_file():
+            return generated_content
+        current = target.read_text(encoding="utf-8")
+        if generated_content.strip() in current:
+            return current
+        separator = "\n\n# DevCore proposed addition\n" if file.path.endswith(".py") else "\n\n## DevCore proposed addition\n"
+        return f"{current.rstrip()}{separator}{generated_content.strip()}\n"
 
     def _parameter(self, parameters: list[DevCoreParsedParameter], name: str) -> str | None:
         for parameter in parameters:

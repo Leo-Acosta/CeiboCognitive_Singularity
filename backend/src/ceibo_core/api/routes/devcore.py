@@ -18,6 +18,10 @@ from ceibo_core.models.schemas import (
     DevCorePatchPlannerResponse,
     DevCorePatchProposeRequest,
     DevCorePatchProposeResponse,
+    DevCorePatchRollbackRequest,
+    DevCorePatchRollbackResponse,
+    DevCorePatchVerifyRequest,
+    DevCorePatchVerifyResponse,
     DevCorePlanRequest,
     DevCorePlanResponse,
     DevCoreSafetyPolicy,
@@ -199,6 +203,60 @@ async def propose_devcore_patch(
             "patch_plan_id": response.patch_plan_id,
             "change_count": len(response.proposed_changes),
             "applies_changes": response.applies_changes,
+        },
+    )
+    return response
+
+
+@router.post("/patch-rollback", response_model=DevCorePatchRollbackResponse)
+async def rollback_devcore_patch(
+    request: DevCorePatchRollbackRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.RUN_DEVCORE_PLAN, "ceibo_devcore")
+    ),
+) -> DevCorePatchRollbackResponse:
+    response = devcore_patch_apply_gate.rollback(request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="devcore.patch_rollback",
+        actor="ceibo_devcore",
+        action=SecurityAction.RUN_DEVCORE_PLAN,
+        allowed=response.status == "rolled_back",
+        payload={
+            "rollback_id": response.rollback_id,
+            "snapshot_id": response.snapshot_id,
+            "status": response.status,
+            "restored_files": response.restored_files,
+            "deleted_files": response.deleted_files,
+            "applies_changes": response.applies_changes,
+        },
+    )
+    return response
+
+
+@router.post("/patch-verify", response_model=DevCorePatchVerifyResponse)
+async def verify_devcore_patch(
+    request: DevCorePatchVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.RUN_DEVCORE_PLAN, "ceibo_devcore")
+    ),
+) -> DevCorePatchVerifyResponse:
+    response = devcore_patch_apply_gate.verify(request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="devcore.patch_verify",
+        actor="ceibo_devcore",
+        action=SecurityAction.RUN_DEVCORE_PLAN,
+        allowed=response.status == "completed",
+        payload={
+            "verification_id": response.verification_id,
+            "command": response.command,
+            "status": response.status,
+            "exit_code": response.exit_code,
         },
     )
     return response

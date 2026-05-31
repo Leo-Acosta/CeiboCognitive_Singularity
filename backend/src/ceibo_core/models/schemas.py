@@ -410,10 +410,48 @@ class DevCorePatchApplyResponse(BaseModel):
     cyber_category: str
     requires_confirmation: bool = True
     applied_files: list[str] = Field(default_factory=list)
+    snapshot_id: str | None = None
     suggested_tests: list[str] = Field(default_factory=list)
     validation_issues: list[DevCoreValidationIssue] = Field(default_factory=list)
     audit_notes: list[str] = Field(default_factory=list)
     applies_changes: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class DevCorePatchRollbackRequest(BaseModel):
+    snapshot_id: str = Field(min_length=1)
+    confirmation_phrase: str | None = None
+    user_id: str = "local-user"
+
+
+class DevCorePatchRollbackResponse(BaseModel):
+    rollback_id: str = Field(default_factory=lambda: str(uuid4()))
+    snapshot_id: str
+    status: str
+    restored_files: list[str] = Field(default_factory=list)
+    deleted_files: list[str] = Field(default_factory=list)
+    validation_issues: list[DevCoreValidationIssue] = Field(default_factory=list)
+    audit_notes: list[str] = Field(default_factory=list)
+    applies_changes: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class DevCorePatchVerifyRequest(BaseModel):
+    command: str = Field(min_length=1)
+    working_directory: str = "."
+    user_id: str = "local-user"
+    timeout_seconds: int = Field(default=60, ge=1, le=120)
+
+
+class DevCorePatchVerifyResponse(BaseModel):
+    verification_id: str = Field(default_factory=lambda: str(uuid4()))
+    command: str
+    status: str
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    validation_issues: list[DevCoreValidationIssue] = Field(default_factory=list)
+    audit_notes: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

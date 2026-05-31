@@ -26,6 +26,10 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
   confirmacion explicita, validacion de workspace y auditoria.
 - Patch Preflight v1: bloquea `create` sobre archivos existentes y `modify`
   sobre archivos ausentes antes de escribir.
+- Patch Verification v1: ejecuta tests sugeridos en Execution Sandbox tras un
+  apply confirmado.
+- Patch Rollback v1: captura snapshot previo y permite restaurarlo con
+  confirmacion explicita.
 - Automatizacion local segura.
 - Auditoria de planes generados.
 - Persistencia de planes como Knowledge Base.
@@ -42,6 +46,8 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 - `POST /api/v1/devcore/patch-plan`
 - `POST /api/v1/devcore/patch-propose`
 - `POST /api/v1/devcore/patch-apply`
+- `POST /api/v1/devcore/patch-verify`
+- `POST /api/v1/devcore/patch-rollback`
 - `POST /api/v1/devcore/parse`
 - `POST /api/v1/devcore/capabilities/promote`
 - `POST /api/v1/devcore/plan`
@@ -160,6 +166,25 @@ por politica.
 
 El preflight tambien bloquea sobrescrituras silenciosas: `create` falla si el
 archivo ya existe y `modify` falla si el archivo objetivo todavia no existe.
+Cuando un patch se aplica, la respuesta incluye `snapshot_id` para rollback.
+
+Ejemplo de verify:
+
+```json
+{
+  "command": "python -m pytest backend/tests/test_agents.py -q",
+  "working_directory": "."
+}
+```
+
+Ejemplo de rollback:
+
+```json
+{
+  "snapshot_id": "snapshot-id",
+  "confirmation_phrase": "ROLLBACK_PATCH"
+}
+```
 
 ## Limites actuales
 
@@ -168,6 +193,8 @@ archivo ya existe y `modify` falla si el archivo objetivo todavia no existe.
 - No aplica cambios que no pertenezcan a los archivos del patch plan.
 - No sobrescribe archivos existentes con cambios `create`.
 - No crea archivos implicitamente desde cambios `modify`.
+- No ejecuta verificacion fuera del sandbox allowlisted.
+- No revierte sin `ROLLBACK_PATCH`.
 - No ejecuta comandos.
 - No aplica plantillas sin revision humana.
 - No ejecuta comandos fuera del workspace.
@@ -200,7 +227,8 @@ auditoria y evaluacion.
 ## Integraciones
 
 - Audit Trail registra `devcore.plan`, `devcore.patch_plan`,
-  `devcore.patch_propose` y `devcore.patch_apply`.
+  `devcore.patch_propose`, `devcore.patch_apply`, `devcore.patch_verify` y
+  `devcore.patch_rollback`.
 - Knowledge Base guarda el plan serializado con tags `devcore` y `plan`.
 - Evaluation Harness ejecuta `devcore.safe-planning`.
 - RBAC permite planificacion DevCore a `admin`, `operator` y `researcher`.

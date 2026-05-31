@@ -21,6 +21,8 @@ from ceibo_core.models.schemas import (
     DevCorePatchPlanFile,
     DevCorePatchPlannerRequest,
     DevCorePatchProposeRequest,
+    DevCorePatchRollbackRequest,
+    DevCorePatchVerifyRequest,
     HardwareProfile,
     JobKind,
     JobStatus,
@@ -52,7 +54,11 @@ from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import EvaluationHarnessService, evaluation_harness_service
 from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.devcore_execution import CONFIRMATION_PHRASE, devcore_execution_sandbox
-from ceibo_core.services.devcore_patch_apply import CONFIRM_PATCH_PHRASE, devcore_patch_apply_gate
+from ceibo_core.services.devcore_patch_apply import (
+    CONFIRM_PATCH_PHRASE,
+    CONFIRM_ROLLBACK_PHRASE,
+    devcore_patch_apply_gate,
+)
 from ceibo_core.services.devcore_patch_planner import devcore_patch_planner
 from ceibo_core.services.devcore_patch_proposer import devcore_patch_proposer
 from ceibo_core.services.devcore_safety import devcore_safety_layer
@@ -472,8 +478,89 @@ def test_devcore_patch_apply_gate_applies_confirmed_workspace_change(tmp_path, m
     target = tmp_path / "backend/tests/generated_test.py"
     assert response.status == "applied"
     assert response.applies_changes is True
+    assert response.snapshot_id
     assert response.applied_files == ["backend/tests/generated_test.py"]
     assert target.read_text(encoding="utf-8").startswith("def test_generated")
+
+
+def test_devcore_patch_apply_gate_rolls_back_created_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(devcore_patch_apply_gate, "workspace_root", tmp_path.resolve())
+
+    applied = devcore_patch_apply_gate.apply(
+        DevCorePatchApplyRequest(
+            patch_plan_id="plan-test",
+            goal="Crea POST /api/v1/tools en FastAPI con tests",
+            files=[
+                DevCorePatchPlanFile(
+                    path="backend/tests/generated_test.py",
+                    change_type="create",
+                    rationale="validar rollback",
+                )
+            ],
+            proposed_changes=[
+                DevCorePatchChange(
+                    path="backend/tests/generated_test.py",
+                    change_type="create",
+                    content="def test_generated():\n    assert True\n",
+                )
+            ],
+            confirmation_phrase=CONFIRM_PATCH_PHRASE,
+        )
+    )
+
+    assert applied.snapshot_id
+    rollback = devcore_patch_apply_gate.rollback(
+        DevCorePatchRollbackRequest(
+            snapshot_id=applied.snapshot_id,
+            confirmation_phrase=CONFIRM_ROLLBACK_PHRASE,
+        )
+    )
+
+    assert rollback.status == "rolled_back"
+    assert rollback.deleted_files == ["backend/tests/generated_test.py"]
+    assert not (tmp_path / "backend/tests/generated_test.py").exists()
+
+
+def test_devcore_patch_apply_gate_rolls_back_modified_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(devcore_patch_apply_gate, "workspace_root", tmp_path.resolve())
+    target = tmp_path / "backend/tests/existing.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("original = True\n", encoding="utf-8")
+
+    applied = devcore_patch_apply_gate.apply(
+        DevCorePatchApplyRequest(
+            patch_plan_id="plan-test",
+            goal="Modifica codigo backend",
+            files=[
+                DevCorePatchPlanFile(
+                    path="backend/tests/existing.py",
+                    change_type="modify",
+                    rationale="validar rollback",
+                )
+            ],
+            proposed_changes=[
+                DevCorePatchChange(
+                    path="backend/tests/existing.py",
+                    change_type="modify",
+                    content="original = False\n",
+                )
+            ],
+            confirmation_phrase=CONFIRM_PATCH_PHRASE,
+        )
+    )
+
+    assert applied.snapshot_id
+    assert target.read_text(encoding="utf-8") == "original = False\n"
+    rollback = devcore_patch_apply_gate.rollback(
+        DevCorePatchRollbackRequest(
+            snapshot_id=applied.snapshot_id,
+            confirmation_phrase=CONFIRM_ROLLBACK_PHRASE,
+        )
+    )
+
+    assert rollback.status == "rolled_back"
+    assert rollback.restored_files == ["backend/tests/existing.py"]
+    assert target.read_text(encoding="utf-8") == "original = True\n"
 
 
 def test_devcore_patch_apply_gate_blocks_workspace_escape(tmp_path, monkeypatch):
@@ -596,6 +683,40 @@ def test_devcore_patch_apply_gate_blocks_modify_when_file_is_missing(tmp_path, m
     assert response.status == "blocked"
     assert not (tmp_path / "backend/tests/missing.py").exists()
     assert any(issue.code == "patch_modify_target_missing" for issue in response.validation_issues)
+
+
+def test_devcore_patch_verify_runs_allowlisted_command():
+    response = devcore_patch_apply_gate.verify(
+        DevCorePatchVerifyRequest(command="python --version")
+    )
+
+    assert response.status == "completed"
+    assert response.exit_code == 0
+    assert "Python" in response.stdout or "Python" in response.stderr
+
+
+def test_devcore_patch_proposer_appends_to_existing_modify_target(tmp_path, monkeypatch):
+    monkeypatch.setattr(devcore_patch_proposer, "workspace_root", tmp_path.resolve())
+    target = tmp_path / "docs/devcore.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("# Existing\n", encoding="utf-8")
+
+    proposal = devcore_patch_proposer.propose(
+        DevCorePatchProposeRequest(
+            patch_plan_id="plan-test",
+            goal="documenta el patch flow",
+            files=[
+                DevCorePatchPlanFile(
+                    path="docs/devcore.md",
+                    change_type="modify",
+                    rationale="contextual docs",
+                )
+            ],
+        )
+    )
+
+    assert proposal.proposed_changes[0].content.startswith("# Existing")
+    assert "DevCore proposed addition" in proposal.proposed_changes[0].content
 
 
 @pytest.mark.asyncio

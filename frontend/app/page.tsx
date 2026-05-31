@@ -143,10 +143,33 @@ type DevCorePatchApplyResponse = {
   cyber_category: string;
   requires_confirmation: boolean;
   applied_files: string[];
+  snapshot_id: string | null;
   suggested_tests: string[];
   validation_issues: DevCoreTemplateIssue[];
   audit_notes: string[];
   applies_changes: boolean;
+};
+
+type DevCorePatchRollbackResponse = {
+  rollback_id: string;
+  snapshot_id: string;
+  status: "confirmation_required" | "blocked" | "rolled_back";
+  restored_files: string[];
+  deleted_files: string[];
+  validation_issues: DevCoreTemplateIssue[];
+  audit_notes: string[];
+  applies_changes: boolean;
+};
+
+type DevCorePatchVerifyResponse = {
+  verification_id: string;
+  command: string;
+  status: "blocked" | "confirmation_required" | "completed" | "failed" | "timeout";
+  exit_code: number | null;
+  stdout: string;
+  stderr: string;
+  validation_issues: DevCoreTemplateIssue[];
+  audit_notes: string[];
 };
 
 type WorkbenchHistoryItem = {
@@ -281,6 +304,8 @@ export default function Home() {
   const [patchPreview, setPatchPreview] = useState<DevCorePatchPlannerResponse | null>(null);
   const [patchProposal, setPatchProposal] = useState<DevCorePatchProposeResponse | null>(null);
   const [patchApplyPreview, setPatchApplyPreview] = useState<DevCorePatchApplyResponse | null>(null);
+  const [patchRollbackPreview, setPatchRollbackPreview] = useState<DevCorePatchRollbackResponse | null>(null);
+  const [patchVerifyPreview, setPatchVerifyPreview] = useState<DevCorePatchVerifyResponse | null>(null);
   const [workbenchHistory, setWorkbenchHistory] = useState<WorkbenchHistoryItem[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
@@ -288,6 +313,8 @@ export default function Home() {
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
   const [isProposingPatch, setIsProposingPatch] = useState(false);
   const [isCheckingPatchGate, setIsCheckingPatchGate] = useState(false);
+  const [isRollingBackPatch, setIsRollingBackPatch] = useState(false);
+  const [isVerifyingPatch, setIsVerifyingPatch] = useState(false);
   const [isConfirmingExecution, setIsConfirmingExecution] = useState(false);
   const [connection, setConnection] = useState<"ready" | "offline">("ready");
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -428,6 +455,8 @@ export default function Home() {
       setPatchPreview(null);
       setPatchProposal(null);
       setPatchApplyPreview(null);
+      setPatchRollbackPreview(null);
+      setPatchVerifyPreview(null);
       return;
     }
 
@@ -445,6 +474,8 @@ export default function Home() {
       setPatchPreview(planned);
       setPatchProposal(null);
       setPatchApplyPreview(null);
+      setPatchRollbackPreview(null);
+      setPatchVerifyPreview(null);
       addHistory({
         kind: "patch",
         title: planned.intent,
@@ -455,6 +486,8 @@ export default function Home() {
       setPatchPreview(null);
       setPatchProposal(null);
       setPatchApplyPreview(null);
+      setPatchRollbackPreview(null);
+      setPatchVerifyPreview(null);
     } finally {
       setIsPlanningPatch(false);
     }
@@ -482,6 +515,8 @@ export default function Home() {
       const proposal = (await response.json()) as DevCorePatchProposeResponse;
       setPatchProposal(proposal);
       setPatchApplyPreview(null);
+      setPatchRollbackPreview(null);
+      setPatchVerifyPreview(null);
       addHistory({
         kind: "patch",
         title: "proposal ready",
@@ -517,6 +552,8 @@ export default function Home() {
       }
       const checked = (await response.json()) as DevCorePatchApplyResponse;
       setPatchApplyPreview(checked);
+      setPatchRollbackPreview(null);
+      setPatchVerifyPreview(null);
       addHistory({
         kind: "patch",
         title: `gate ${checked.status}`,
@@ -526,6 +563,68 @@ export default function Home() {
       setPatchApplyPreview(null);
     } finally {
       setIsCheckingPatchGate(false);
+    }
+  }
+
+  async function verifyAppliedPatch() {
+    const command = patchApplyPreview?.suggested_tests[0];
+    if (!command || isVerifyingPatch) {
+      return;
+    }
+
+    setIsVerifyingPatch(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/devcore/patch-verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command }),
+      });
+      if (!response.ok) {
+        throw new Error(`Patch verify responded ${response.status}`);
+      }
+      const verified = (await response.json()) as DevCorePatchVerifyResponse;
+      setPatchVerifyPreview(verified);
+      addHistory({
+        kind: "patch",
+        title: `verify ${verified.status}`,
+        detail: verified.command,
+      });
+    } catch {
+      setPatchVerifyPreview(null);
+    } finally {
+      setIsVerifyingPatch(false);
+    }
+  }
+
+  async function rollbackAppliedPatch() {
+    if (!patchApplyPreview?.snapshot_id || isRollingBackPatch) {
+      return;
+    }
+
+    setIsRollingBackPatch(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/devcore/patch-rollback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          snapshot_id: patchApplyPreview.snapshot_id,
+          confirmation_phrase: "ROLLBACK_PATCH",
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Patch rollback responded ${response.status}`);
+      }
+      const rollback = (await response.json()) as DevCorePatchRollbackResponse;
+      setPatchRollbackPreview(rollback);
+      addHistory({
+        kind: "patch",
+        title: `rollback ${rollback.status}`,
+        detail: [...rollback.restored_files, ...rollback.deleted_files].join(", ") || "sin archivos",
+      });
+    } catch {
+      setPatchRollbackPreview(null);
+    } finally {
+      setIsRollingBackPatch(false);
     }
   }
 
@@ -609,6 +708,8 @@ export default function Home() {
       setPatchPreview(null);
       setPatchProposal(null);
       setPatchApplyPreview(null);
+      setPatchRollbackPreview(null);
+      setPatchVerifyPreview(null);
       setWorkbenchHistory([]);
       setMessages([
       {
@@ -1146,6 +1247,73 @@ export default function Home() {
                       <p className="text-xs text-slate-400">
                         applied_files: {patchApplyPreview.applied_files.length}
                       </p>
+                      {patchApplyPreview.snapshot_id ? (
+                        <p className="break-all text-xs text-slate-400">
+                          snapshot: {patchApplyPreview.snapshot_id}
+                        </p>
+                      ) : null}
+                      {patchApplyPreview.status === "applied" ? (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void verifyAppliedPatch()}
+                            disabled={isVerifyingPatch || !patchApplyPreview.suggested_tests.length}
+                            className="inline-flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-medium text-slate-950 transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isVerifyingPatch ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Terminal className="h-4 w-4" />
+                            )}
+                            Verificar tests
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void rollbackAppliedPatch()}
+                            disabled={isRollingBackPatch || !patchApplyPreview.snapshot_id}
+                            className="inline-flex items-center gap-2 rounded-md border border-red-300/40 bg-red-400/10 px-3 py-2 text-sm font-medium text-red-100 transition hover:bg-red-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isRollingBackPatch ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-4 w-4" />
+                            )}
+                            Rollback
+                          </button>
+                        </div>
+                      ) : null}
+                      {patchVerifyPreview ? (
+                        <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2">
+                          <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                            Verificacion
+                          </p>
+                          <p className="mt-1 font-semibold text-white">
+                            {patchVerifyPreview.status}
+                            {patchVerifyPreview.exit_code === null
+                              ? ""
+                              : ` - exit ${patchVerifyPreview.exit_code}`}
+                          </p>
+                          {(patchVerifyPreview.stdout || patchVerifyPreview.stderr) ? (
+                            <pre className="mt-2 max-h-40 overflow-auto rounded bg-black/30 p-2 text-xs text-slate-200">
+                              <code>{patchVerifyPreview.stdout || patchVerifyPreview.stderr}</code>
+                            </pre>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {patchRollbackPreview ? (
+                        <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2">
+                          <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                            Rollback
+                          </p>
+                          <p className="mt-1 font-semibold text-white">
+                            {patchRollbackPreview.status}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            restaurados {patchRollbackPreview.restored_files.length} - eliminados{" "}
+                            {patchRollbackPreview.deleted_files.length}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="mt-1 text-slate-300">
