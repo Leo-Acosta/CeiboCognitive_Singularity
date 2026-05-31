@@ -18,6 +18,8 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
   doble confirmacion y bloqueo de solicitudes peligrosas.
 - Execution Sandbox v1: ejecucion controlada dentro del workspace con allowlist,
   confirmacion explicita y auditoria.
+- Patch Planner v1: prepara archivos objetivo, pasos, tests y diff preview sin
+  aplicar cambios.
 - Automatizacion local segura.
 - Auditoria de planes generados.
 - Persistencia de planes como Knowledge Base.
@@ -31,6 +33,7 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 - `GET /api/v1/devcore/templates`
 - `POST /api/v1/devcore/templates/render`
 - `POST /api/v1/devcore/execute`
+- `POST /api/v1/devcore/patch-plan`
 - `POST /api/v1/devcore/parse`
 - `POST /api/v1/devcore/capabilities/promote`
 - `POST /api/v1/devcore/plan`
@@ -88,9 +91,22 @@ Sin `CONFIRM_EXECUTION`, DevCore devuelve `confirmation_required`. Los comandos
 se ejecutan con `shell=false`, dentro del workspace resuelto y con allowlist de
 ejecutables.
 
+Ejemplo de patch planner:
+
+```json
+{
+  "goal": "Crea POST /api/v1/tools en FastAPI con tests",
+  "context": []
+}
+```
+
+La respuesta incluye archivos objetivo, pasos, tests sugeridos y `diff_preview`.
+`applies_changes` siempre es `false` en v1.
+
 ## Limites actuales
 
 - No escribe archivos por su cuenta.
+- No aplica patch plans; solo prepara preview revisable.
 - No ejecuta comandos.
 - No aplica plantillas sin revision humana.
 - No ejecuta comandos fuera del workspace.

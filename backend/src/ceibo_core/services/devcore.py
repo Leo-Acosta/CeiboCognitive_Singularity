@@ -39,6 +39,7 @@ class DevCoreService:
         "template-engine",
         "cyber-safety-layer",
         "execution-sandbox",
+        "patch-planner",
         "release-readiness",
         "safe-local-automation",
     ]
@@ -81,6 +82,12 @@ class DevCoreService:
                 name="Execution Sandbox",
                 description="Ejecuta comandos allowlisted solo dentro del workspace con confirmacion y auditoria.",
                 safety_score=80,
+            ),
+            "patch-planner": DevCoreCapabilityRecord(
+                capability_id="patch-planner",
+                name="Patch Planner",
+                description="Prepara planes de patch y diff preview sin modificar archivos.",
+                safety_score=90,
             ),
             "safe-local-automation": DevCoreCapabilityRecord(
                 capability_id="safe-local-automation",

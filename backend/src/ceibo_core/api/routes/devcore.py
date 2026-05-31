@@ -12,6 +12,8 @@ from ceibo_core.models.schemas import (
     DevCoreExecutionResponse,
     DevCoreParseRequest,
     DevCoreParseResponse,
+    DevCorePatchPlannerRequest,
+    DevCorePatchPlannerResponse,
     DevCorePlanRequest,
     DevCorePlanResponse,
     DevCoreSafetyPolicy,
@@ -25,6 +27,7 @@ from ceibo_core.models.schemas import (
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.devcore_execution import devcore_execution_sandbox
+from ceibo_core.services.devcore_patch_planner import devcore_patch_planner
 from ceibo_core.services.devcore_safety import devcore_safety_layer
 from ceibo_core.services.devcore_templates import devcore_template_engine
 from ceibo_core.services.memory import knowledge_service
@@ -109,6 +112,34 @@ async def execute_devcore_sandbox(
             "risk_level": response.risk_level,
             "cyber_category": response.cyber_category,
             "policy_action": response.policy_action,
+        },
+    )
+    return response
+
+
+@router.post("/patch-plan", response_model=DevCorePatchPlannerResponse)
+async def plan_devcore_patch(
+    request: DevCorePatchPlannerRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.RUN_DEVCORE_PLAN, "ceibo_devcore")
+    ),
+) -> DevCorePatchPlannerResponse:
+    response = devcore_patch_planner.plan(request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="devcore.patch_plan",
+        actor="ceibo_devcore",
+        action=SecurityAction.RUN_DEVCORE_PLAN,
+        allowed=response.policy_action != "block",
+        payload={
+            "patch_plan_id": response.patch_plan_id,
+            "goal": response.goal,
+            "intent": response.intent,
+            "risk_level": response.risk_level,
+            "policy_action": response.policy_action,
+            "applies_changes": response.applies_changes,
         },
     )
     return response

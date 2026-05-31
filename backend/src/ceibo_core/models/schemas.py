@@ -337,6 +337,35 @@ class DevCoreExecutionResponse(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class DevCorePatchPlannerRequest(BaseModel):
+    goal: str = Field(min_length=1)
+    user_id: str = "local-user"
+    context: list[str] = Field(default_factory=list)
+
+
+class DevCorePatchPlanFile(BaseModel):
+    path: str
+    change_type: str
+    rationale: str
+
+
+class DevCorePatchPlannerResponse(BaseModel):
+    patch_plan_id: str = Field(default_factory=lambda: str(uuid4()))
+    goal: str
+    intent: str
+    risk_level: str
+    policy_action: str
+    cyber_category: str
+    requires_confirmation: bool
+    files: list[DevCorePatchPlanFile] = Field(default_factory=list)
+    steps: list[str] = Field(default_factory=list)
+    suggested_tests: list[str] = Field(default_factory=list)
+    diff_preview: str = ""
+    validation_issues: list[DevCoreValidationIssue] = Field(default_factory=list)
+    applies_changes: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class MemoryRememberRequest(BaseModel):
     session_id: str = Field(min_length=1)
     content: str = Field(min_length=1)

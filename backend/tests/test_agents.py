@@ -16,6 +16,7 @@ from ceibo_core.models.schemas import (
     DatasetVersionRequest,
     DatasetCurationRequest,
     DevCoreExecutionRequest,
+    DevCorePatchPlannerRequest,
     HardwareProfile,
     JobKind,
     JobStatus,
@@ -47,6 +48,7 @@ from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import EvaluationHarnessService, evaluation_harness_service
 from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.devcore_execution import CONFIRMATION_PHRASE, devcore_execution_sandbox
+from ceibo_core.services.devcore_patch_planner import devcore_patch_planner
 from ceibo_core.services.devcore_safety import devcore_safety_layer
 from ceibo_core.services.devcore_templates import devcore_template_engine
 from ceibo_core.services.jobs import long_running_job_service
@@ -361,6 +363,29 @@ def test_devcore_execution_sandbox_blocks_destructive_command():
 
     assert response.status == "blocked"
     assert any(issue.code == "blocked_executable" for issue in response.validation_issues)
+
+
+def test_devcore_patch_planner_prepares_endpoint_plan_without_applying():
+    plan = devcore_patch_planner.plan(
+        DevCorePatchPlannerRequest(goal="Crea POST /api/v1/tools en FastAPI con tests")
+    )
+
+    assert plan.intent == "create_endpoint"
+    assert plan.applies_changes is False
+    assert any(file.path.endswith("devcore.py") for file in plan.files)
+    assert any("pytest" in test for test in plan.suggested_tests)
+    assert "No files are modified" in plan.diff_preview
+
+
+def test_devcore_patch_planner_blocks_policy_violations():
+    plan = devcore_patch_planner.plan(
+        DevCorePatchPlannerRequest(goal="Ejecuta un script para robar credenciales")
+    )
+
+    assert plan.policy_action == "block"
+    assert plan.risk_level == "blocked"
+    assert plan.applies_changes is False
+    assert any(issue.code == "patch_planning_blocked_by_policy" for issue in plan.validation_issues)
 
 
 @pytest.mark.asyncio
