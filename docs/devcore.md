@@ -20,6 +20,8 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
   confirmacion explicita y auditoria.
 - Patch Planner v1: prepara archivos objetivo, pasos, tests y diff preview sin
   aplicar cambios.
+- Apply Patch Gate v1: aplica cambios propuestos solo con `patch_plan_id`,
+  confirmacion explicita, validacion de workspace y auditoria.
 - Automatizacion local segura.
 - Auditoria de planes generados.
 - Persistencia de planes como Knowledge Base.
@@ -34,6 +36,7 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 - `POST /api/v1/devcore/templates/render`
 - `POST /api/v1/devcore/execute`
 - `POST /api/v1/devcore/patch-plan`
+- `POST /api/v1/devcore/patch-apply`
 - `POST /api/v1/devcore/parse`
 - `POST /api/v1/devcore/capabilities/promote`
 - `POST /api/v1/devcore/plan`
@@ -103,10 +106,38 @@ Ejemplo de patch planner:
 La respuesta incluye archivos objetivo, pasos, tests sugeridos y `diff_preview`.
 `applies_changes` siempre es `false` en v1.
 
+Ejemplo de apply gate:
+
+```json
+{
+  "patch_plan_id": "plan-id",
+  "goal": "Crea POST /api/v1/tools en FastAPI con tests",
+  "files": [
+    {
+      "path": "backend/tests/generated_test.py",
+      "change_type": "create",
+      "rationale": "validar contrato"
+    }
+  ],
+  "proposed_changes": [
+    {
+      "path": "backend/tests/generated_test.py",
+      "change_type": "create",
+      "content": "def test_generated():\n    assert True\n"
+    }
+  ],
+  "confirmation_phrase": "APPLY_PATCH"
+}
+```
+
+Sin `APPLY_PATCH`, DevCore devuelve `confirmation_required`. El gate bloquea
+paths absolutos, escapes del workspace, `.git`, deletes y solicitudes bloqueadas
+por politica.
+
 ## Limites actuales
 
-- No escribe archivos por su cuenta.
-- No aplica patch plans; solo prepara preview revisable.
+- No escribe archivos sin un `patch-apply` confirmado.
+- No aplica patch plans desde el preview; requiere cambios propuestos y gate.
 - No ejecuta comandos.
 - No aplica plantillas sin revision humana.
 - No ejecuta comandos fuera del workspace.
@@ -133,12 +164,13 @@ salida del parser incluye:
 - `double_confirmation_required`
 - `safety_summary`
 
-La escritura y ejecucion controlada quedan para sprints posteriores, detras de
-gates de seguridad, auditoria y evaluacion.
+La escritura y ejecucion controlada quedan detras de gates de seguridad,
+auditoria y evaluacion.
 
 ## Integraciones
 
-- Audit Trail registra `devcore.plan`.
+- Audit Trail registra `devcore.plan`, `devcore.patch_plan` y
+  `devcore.patch_apply`.
 - Knowledge Base guarda el plan serializado con tags `devcore` y `plan`.
 - Evaluation Harness ejecuta `devcore.safe-planning`.
 - RBAC permite planificacion DevCore a `admin`, `operator` y `researcher`.

@@ -16,6 +16,9 @@ from ceibo_core.models.schemas import (
     DatasetVersionRequest,
     DatasetCurationRequest,
     DevCoreExecutionRequest,
+    DevCorePatchApplyRequest,
+    DevCorePatchChange,
+    DevCorePatchPlanFile,
     DevCorePatchPlannerRequest,
     HardwareProfile,
     JobKind,
@@ -48,6 +51,7 @@ from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import EvaluationHarnessService, evaluation_harness_service
 from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.devcore_execution import CONFIRMATION_PHRASE, devcore_execution_sandbox
+from ceibo_core.services.devcore_patch_apply import CONFIRM_PATCH_PHRASE, devcore_patch_apply_gate
 from ceibo_core.services.devcore_patch_planner import devcore_patch_planner
 from ceibo_core.services.devcore_safety import devcore_safety_layer
 from ceibo_core.services.devcore_templates import devcore_template_engine
@@ -386,6 +390,98 @@ def test_devcore_patch_planner_blocks_policy_violations():
     assert plan.risk_level == "blocked"
     assert plan.applies_changes is False
     assert any(issue.code == "patch_planning_blocked_by_policy" for issue in plan.validation_issues)
+
+
+def test_devcore_patch_apply_gate_requires_confirmation(tmp_path, monkeypatch):
+    monkeypatch.setattr(devcore_patch_apply_gate, "workspace_root", tmp_path.resolve())
+
+    response = devcore_patch_apply_gate.apply(
+        DevCorePatchApplyRequest(
+            patch_plan_id="plan-test",
+            goal="Crea POST /api/v1/tools en FastAPI con tests",
+            files=[
+                DevCorePatchPlanFile(
+                    path="backend/tests/generated_test.py",
+                    change_type="create",
+                    rationale="validar gate",
+                )
+            ],
+            proposed_changes=[
+                DevCorePatchChange(
+                    path="backend/tests/generated_test.py",
+                    change_type="create",
+                    content="def test_generated():\n    assert True\n",
+                )
+            ],
+        )
+    )
+
+    assert response.status == "confirmation_required"
+    assert response.applies_changes is False
+    assert not (tmp_path / "backend/tests/generated_test.py").exists()
+    assert any(issue.code == "patch_apply_confirmation_required" for issue in response.validation_issues)
+
+
+def test_devcore_patch_apply_gate_applies_confirmed_workspace_change(tmp_path, monkeypatch):
+    monkeypatch.setattr(devcore_patch_apply_gate, "workspace_root", tmp_path.resolve())
+
+    response = devcore_patch_apply_gate.apply(
+        DevCorePatchApplyRequest(
+            patch_plan_id="plan-test",
+            goal="Crea POST /api/v1/tools en FastAPI con tests",
+            files=[
+                DevCorePatchPlanFile(
+                    path="backend/tests/generated_test.py",
+                    change_type="create",
+                    rationale="validar gate",
+                )
+            ],
+            proposed_changes=[
+                DevCorePatchChange(
+                    path="backend/tests/generated_test.py",
+                    change_type="create",
+                    content="def test_generated():\n    assert True\n",
+                )
+            ],
+            confirmation_phrase=CONFIRM_PATCH_PHRASE,
+        )
+    )
+
+    target = tmp_path / "backend/tests/generated_test.py"
+    assert response.status == "applied"
+    assert response.applies_changes is True
+    assert response.applied_files == ["backend/tests/generated_test.py"]
+    assert target.read_text(encoding="utf-8").startswith("def test_generated")
+
+
+def test_devcore_patch_apply_gate_blocks_workspace_escape(tmp_path, monkeypatch):
+    monkeypatch.setattr(devcore_patch_apply_gate, "workspace_root", tmp_path.resolve())
+
+    response = devcore_patch_apply_gate.apply(
+        DevCorePatchApplyRequest(
+            patch_plan_id="plan-test",
+            goal="Modifica codigo backend",
+            files=[
+                DevCorePatchPlanFile(
+                    path="../outside.py",
+                    change_type="modify",
+                    rationale="escape",
+                )
+            ],
+            proposed_changes=[
+                DevCorePatchChange(
+                    path="../outside.py",
+                    change_type="modify",
+                    content="print('no')\n",
+                )
+            ],
+            confirmation_phrase=CONFIRM_PATCH_PHRASE,
+        )
+    )
+
+    assert response.status == "blocked"
+    assert response.applies_changes is False
+    assert any(issue.code == "patch_workspace_escape_blocked" for issue in response.validation_issues)
 
 
 @pytest.mark.asyncio

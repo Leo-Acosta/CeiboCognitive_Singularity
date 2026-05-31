@@ -10,6 +10,8 @@ from ceibo_core.models.schemas import (
     DevCoreCapabilityRecord,
     DevCoreExecutionRequest,
     DevCoreExecutionResponse,
+    DevCorePatchApplyRequest,
+    DevCorePatchApplyResponse,
     DevCoreParseRequest,
     DevCoreParseResponse,
     DevCorePatchPlannerRequest,
@@ -27,6 +29,7 @@ from ceibo_core.models.schemas import (
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.devcore_execution import devcore_execution_sandbox
+from ceibo_core.services.devcore_patch_apply import devcore_patch_apply_gate
 from ceibo_core.services.devcore_patch_planner import devcore_patch_planner
 from ceibo_core.services.devcore_safety import devcore_safety_layer
 from ceibo_core.services.devcore_templates import devcore_template_engine
@@ -139,6 +142,33 @@ async def plan_devcore_patch(
             "intent": response.intent,
             "risk_level": response.risk_level,
             "policy_action": response.policy_action,
+            "applies_changes": response.applies_changes,
+        },
+    )
+    return response
+
+
+@router.post("/patch-apply", response_model=DevCorePatchApplyResponse)
+async def apply_devcore_patch(
+    request: DevCorePatchApplyRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.RUN_DEVCORE_PLAN, "ceibo_devcore")
+    ),
+) -> DevCorePatchApplyResponse:
+    response = devcore_patch_apply_gate.apply(request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="devcore.patch_apply",
+        actor="ceibo_devcore",
+        action=SecurityAction.RUN_DEVCORE_PLAN,
+        allowed=response.status == "applied",
+        payload={
+            "apply_id": response.apply_id,
+            "patch_plan_id": response.patch_plan_id,
+            "status": response.status,
+            "applied_files": response.applied_files,
             "applies_changes": response.applies_changes,
         },
     )

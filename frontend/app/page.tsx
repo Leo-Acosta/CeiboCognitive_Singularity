@@ -117,6 +117,21 @@ type DevCorePatchPlannerResponse = {
   applies_changes: boolean;
 };
 
+type DevCorePatchApplyResponse = {
+  apply_id: string;
+  patch_plan_id: string;
+  status: "confirmation_required" | "blocked" | "no_changes" | "applied";
+  risk_level: string;
+  policy_action: string;
+  cyber_category: string;
+  requires_confirmation: boolean;
+  applied_files: string[];
+  suggested_tests: string[];
+  validation_issues: DevCoreTemplateIssue[];
+  audit_notes: string[];
+  applies_changes: boolean;
+};
+
 type WorkbenchHistoryItem = {
   id: string;
   kind: "parse" | "template" | "sandbox" | "patch";
@@ -247,11 +262,13 @@ export default function Home() {
   const [templatePreview, setTemplatePreview] = useState<DevCoreTemplateRenderResponse | null>(null);
   const [executionPreview, setExecutionPreview] = useState<DevCoreExecutionResponse | null>(null);
   const [patchPreview, setPatchPreview] = useState<DevCorePatchPlannerResponse | null>(null);
+  const [patchApplyPreview, setPatchApplyPreview] = useState<DevCorePatchApplyResponse | null>(null);
   const [workbenchHistory, setWorkbenchHistory] = useState<WorkbenchHistoryItem[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
+  const [isCheckingPatchGate, setIsCheckingPatchGate] = useState(false);
   const [isConfirmingExecution, setIsConfirmingExecution] = useState(false);
   const [connection, setConnection] = useState<"ready" | "offline">("ready");
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -390,6 +407,7 @@ export default function Home() {
   async function preparePatchPlan(content: string, parse: DevCoreParseResponse) {
     if (!shouldPreparePatchPlan(parse)) {
       setPatchPreview(null);
+      setPatchApplyPreview(null);
       return;
     }
 
@@ -405,6 +423,7 @@ export default function Home() {
       }
       const planned = (await response.json()) as DevCorePatchPlannerResponse;
       setPatchPreview(planned);
+      setPatchApplyPreview(null);
       addHistory({
         kind: "patch",
         title: planned.intent,
@@ -412,8 +431,43 @@ export default function Home() {
       });
     } catch {
       setPatchPreview(null);
+      setPatchApplyPreview(null);
     } finally {
       setIsPlanningPatch(false);
+    }
+  }
+
+  async function checkPatchApplyGate() {
+    if (!patchPreview || isCheckingPatchGate) {
+      return;
+    }
+
+    setIsCheckingPatchGate(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/devcore/patch-apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patch_plan_id: patchPreview.patch_plan_id,
+          goal: patchPreview.goal,
+          files: patchPreview.files,
+          proposed_changes: [],
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Patch apply gate responded ${response.status}`);
+      }
+      const checked = (await response.json()) as DevCorePatchApplyResponse;
+      setPatchApplyPreview(checked);
+      addHistory({
+        kind: "patch",
+        title: `gate ${checked.status}`,
+        detail: checked.applies_changes ? checked.applied_files.join(", ") : "sin aplicar cambios",
+      });
+    } catch {
+      setPatchApplyPreview(null);
+    } finally {
+      setIsCheckingPatchGate(false);
     }
   }
 
@@ -495,6 +549,7 @@ export default function Home() {
       setTemplatePreview(null);
       setExecutionPreview(null);
       setPatchPreview(null);
+      setPatchApplyPreview(null);
       setWorkbenchHistory([]);
       setMessages([
       {
@@ -906,9 +961,23 @@ export default function Home() {
                       </div>
 
                       <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-                        No aplica cambios. Sprint 24 abrira el gate de aplicacion con confirmacion,
-                        auditoria y validacion previa.
+                        No aplica cambios. El gate de Sprint 24 exige cambios propuestos y
+                        confirmacion explicita antes de escribir archivos.
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => void checkPatchApplyGate()}
+                        disabled={isCheckingPatchGate}
+                        className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        {isCheckingPatchGate ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ShieldCheck className="h-4 w-4" />
+                        )}
+                        Validar apply gate
+                      </button>
                     </div>
                   ) : (
                     <div className="mt-4 space-y-3">
@@ -931,13 +1000,40 @@ export default function Home() {
 
                 <div className="rounded-lg border border-slate-200 bg-slate-950 p-4 text-sm leading-6 text-slate-200">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                    Sprint 24 preparado
+                    Sprint 24
                   </p>
                   <p className="mt-2 font-medium text-white">Apply Patch Gate v1</p>
-                  <p className="mt-1 text-slate-300">
-                    El siguiente paso toma un patch_plan_id, exige confirmacion explicita, registra
-                    auditoria y recien entonces habilita aplicar cambios controlados.
-                  </p>
+                  {patchApplyPreview ? (
+                    <div className="mt-3 space-y-3">
+                      <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                          Estado
+                        </p>
+                        <p className="mt-1 font-semibold text-white">{patchApplyPreview.status}</p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {patchApplyPreview.policy_action} - {patchApplyPreview.cyber_category}
+                        </p>
+                      </div>
+                      {patchApplyPreview.validation_issues.length ? (
+                        <div className="rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                          {patchApplyPreview.validation_issues[0].message}
+                        </div>
+                      ) : null}
+                      {patchApplyPreview.suggested_tests.length ? (
+                        <code className="block rounded-md bg-black/30 px-3 py-2 text-xs text-slate-200">
+                          {patchApplyPreview.suggested_tests[0]}
+                        </code>
+                      ) : null}
+                      <p className="text-xs text-slate-400">
+                        applied_files: {patchApplyPreview.applied_files.length}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-slate-300">
+                      Toma un patch_plan_id, exige confirmacion `APPLY_PATCH`, registra auditoria y
+                      solo aplica cambios propuestos dentro del workspace.
+                    </p>
+                  )}
                 </div>
 
                 <div className="rounded-lg border border-slate-200 bg-white p-4">
