@@ -24,6 +24,8 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
   sin escribir archivos.
 - Apply Patch Gate v1: aplica cambios propuestos solo con `patch_plan_id`,
   confirmacion explicita, validacion de workspace y auditoria.
+- Patch Preflight v1: bloquea `create` sobre archivos existentes y `modify`
+  sobre archivos ausentes antes de escribir.
 - Automatizacion local segura.
 - Auditoria de planes generados.
 - Persistencia de planes como Knowledge Base.
@@ -156,11 +158,16 @@ Sin `APPLY_PATCH`, DevCore devuelve `confirmation_required`. El gate bloquea
 paths absolutos, escapes del workspace, `.git`, deletes y solicitudes bloqueadas
 por politica.
 
+El preflight tambien bloquea sobrescrituras silenciosas: `create` falla si el
+archivo ya existe y `modify` falla si el archivo objetivo todavia no existe.
+
 ## Limites actuales
 
 - No escribe archivos sin un `patch-apply` confirmado.
 - No aplica patch plans desde el preview; requiere cambios propuestos y gate.
 - No aplica cambios que no pertenezcan a los archivos del patch plan.
+- No sobrescribe archivos existentes con cambios `create`.
+- No crea archivos implicitamente desde cambios `modify`.
 - No ejecuta comandos.
 - No aplica plantillas sin revision humana.
 - No ejecuta comandos fuera del workspace.

@@ -1126,8 +1126,16 @@ export default function Home() {
                         </p>
                       </div>
                       {patchApplyPreview.validation_issues.length ? (
-                        <div className="rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
-                          {patchApplyPreview.validation_issues[0].message}
+                        <div className="space-y-2">
+                          {patchApplyPreview.validation_issues.map((issue) => (
+                            <div
+                              key={`${issue.code}-${issue.message}`}
+                              className="rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100"
+                            >
+                              <p className="font-medium">{issue.code}</p>
+                              <p className="mt-1">{issue.message}</p>
+                            </div>
+                          ))}
                         </div>
                       ) : null}
                       {patchApplyPreview.suggested_tests.length ? (

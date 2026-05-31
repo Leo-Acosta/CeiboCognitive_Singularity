@@ -27,6 +27,7 @@ class DevCorePatchApplyGate:
         validation_issues.extend(self._validate_plan_files(request.files))
         validation_issues.extend(self._validate_changes(request.proposed_changes))
         validation_issues.extend(self._validate_changes_match_plan(request.files, request.proposed_changes))
+        validation_issues.extend(self._validate_file_state(request.proposed_changes))
 
         if parsed.policy_action == "block":
             validation_issues.append(
@@ -157,6 +158,31 @@ class DevCorePatchApplyGate:
                 )
         return issues
 
+    def _validate_file_state(self, changes: list[DevCorePatchChange]) -> list[DevCoreValidationIssue]:
+        issues: list[DevCoreValidationIssue] = []
+        for change in changes:
+            try:
+                target = self._resolve_workspace_path(change.path)
+            except ValueError:
+                continue
+            if change.change_type == "create" and target.exists():
+                issues.append(
+                    DevCoreValidationIssue(
+                        severity="error",
+                        code="patch_create_target_exists",
+                        message=f"No se puede crear {change.path}: el archivo ya existe.",
+                    )
+                )
+            if change.change_type == "modify" and not target.exists():
+                issues.append(
+                    DevCoreValidationIssue(
+                        severity="error",
+                        code="patch_modify_target_missing",
+                        message=f"No se puede modificar {change.path}: el archivo no existe.",
+                    )
+                )
+        return issues
+
     def _validate_path(self, path: str) -> list[DevCoreValidationIssue]:
         issues: list[DevCoreValidationIssue] = []
         candidate = Path(path)
@@ -218,6 +244,7 @@ class DevCorePatchApplyGate:
                 "Apply Gate v1 exige confirmation_phrase=APPLY_PATCH.",
                 "Solo se permiten create/modify dentro del workspace.",
                 "Delete, paths absolutos, .git y escapes del workspace quedan bloqueados.",
+                "Patch Preflight v1 bloquea create sobre archivos existentes y modify sobre archivos ausentes.",
             ],
             applies_changes=applies_changes,
         )

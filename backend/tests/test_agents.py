@@ -535,6 +535,69 @@ def test_devcore_patch_apply_gate_blocks_changes_outside_plan(tmp_path, monkeypa
     assert any(issue.code == "patch_change_not_in_plan" for issue in response.validation_issues)
 
 
+def test_devcore_patch_apply_gate_blocks_create_when_file_exists(tmp_path, monkeypatch):
+    monkeypatch.setattr(devcore_patch_apply_gate, "workspace_root", tmp_path.resolve())
+    target = tmp_path / "backend/tests/existing.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("original = True\n", encoding="utf-8")
+
+    response = devcore_patch_apply_gate.apply(
+        DevCorePatchApplyRequest(
+            patch_plan_id="plan-test",
+            goal="Crea archivo backend con tests",
+            files=[
+                DevCorePatchPlanFile(
+                    path="backend/tests/existing.py",
+                    change_type="create",
+                    rationale="preflight",
+                )
+            ],
+            proposed_changes=[
+                DevCorePatchChange(
+                    path="backend/tests/existing.py",
+                    change_type="create",
+                    content="original = False\n",
+                )
+            ],
+            confirmation_phrase=CONFIRM_PATCH_PHRASE,
+        )
+    )
+
+    assert response.status == "blocked"
+    assert target.read_text(encoding="utf-8") == "original = True\n"
+    assert any(issue.code == "patch_create_target_exists" for issue in response.validation_issues)
+
+
+def test_devcore_patch_apply_gate_blocks_modify_when_file_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(devcore_patch_apply_gate, "workspace_root", tmp_path.resolve())
+
+    response = devcore_patch_apply_gate.apply(
+        DevCorePatchApplyRequest(
+            patch_plan_id="plan-test",
+            goal="Modifica codigo backend",
+            files=[
+                DevCorePatchPlanFile(
+                    path="backend/tests/missing.py",
+                    change_type="modify",
+                    rationale="preflight",
+                )
+            ],
+            proposed_changes=[
+                DevCorePatchChange(
+                    path="backend/tests/missing.py",
+                    change_type="modify",
+                    content="created = False\n",
+                )
+            ],
+            confirmation_phrase=CONFIRM_PATCH_PHRASE,
+        )
+    )
+
+    assert response.status == "blocked"
+    assert not (tmp_path / "backend/tests/missing.py").exists()
+    assert any(issue.code == "patch_modify_target_missing" for issue in response.validation_issues)
+
+
 @pytest.mark.asyncio
 async def test_devcore_capability_promotion_gate_activates_safe_capability():
     await evaluation_harness_service.run()
