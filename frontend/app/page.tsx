@@ -95,9 +95,31 @@ type DevCoreExecutionResponse = {
   audit_notes: string[];
 };
 
+type DevCorePatchPlanFile = {
+  path: string;
+  change_type: string;
+  rationale: string;
+};
+
+type DevCorePatchPlannerResponse = {
+  patch_plan_id: string;
+  goal: string;
+  intent: string;
+  risk_level: string;
+  policy_action: string;
+  cyber_category: string;
+  requires_confirmation: boolean;
+  files: DevCorePatchPlanFile[];
+  steps: string[];
+  suggested_tests: string[];
+  diff_preview: string;
+  validation_issues: DevCoreTemplateIssue[];
+  applies_changes: boolean;
+};
+
 type WorkbenchHistoryItem = {
   id: string;
-  kind: "parse" | "template" | "sandbox";
+  kind: "parse" | "template" | "sandbox" | "patch";
   title: string;
   detail: string;
 };
@@ -177,6 +199,13 @@ function sandboxCommandForMessage(message: string, parse: DevCoreParseResponse) 
   return cleaned || null;
 }
 
+function shouldPreparePatchPlan(parse: DevCoreParseResponse) {
+  return (
+    parse.policy_action !== "block" &&
+    (parse.intent === "create_endpoint" || parse.intent === "modify_code")
+  );
+}
+
 function templateRequestForParse(parse: DevCoreParseResponse) {
   if (parse.intent !== "create_endpoint" || parse.risk_level === "blocked") {
     return null;
@@ -217,10 +246,12 @@ export default function Home() {
   const [parseResult, setParseResult] = useState<DevCoreParseResponse | null>(null);
   const [templatePreview, setTemplatePreview] = useState<DevCoreTemplateRenderResponse | null>(null);
   const [executionPreview, setExecutionPreview] = useState<DevCoreExecutionResponse | null>(null);
+  const [patchPreview, setPatchPreview] = useState<DevCorePatchPlannerResponse | null>(null);
   const [workbenchHistory, setWorkbenchHistory] = useState<WorkbenchHistoryItem[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
+  const [isPlanningPatch, setIsPlanningPatch] = useState(false);
   const [isConfirmingExecution, setIsConfirmingExecution] = useState(false);
   const [connection, setConnection] = useState<"ready" | "offline">("ready");
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -287,7 +318,7 @@ export default function Home() {
       addHistory({
         kind: "template",
         title: rendered.artifact_name,
-        detail: `${rendered.template_id} · ${rendered.language}`,
+        detail: `${rendered.template_id} - ${rendered.language}`,
       });
     } catch {
       setTemplatePreview(null);
@@ -349,10 +380,40 @@ export default function Home() {
       addHistory({
         kind: "sandbox",
         title: executed.status,
-        detail: `${executed.command}${executed.exit_code === null ? "" : ` · exit ${executed.exit_code}`}`,
+        detail: `${executed.command}${executed.exit_code === null ? "" : ` - exit ${executed.exit_code}`}`,
       });
     } finally {
       setIsConfirmingExecution(false);
+    }
+  }
+
+  async function preparePatchPlan(content: string, parse: DevCoreParseResponse) {
+    if (!shouldPreparePatchPlan(parse)) {
+      setPatchPreview(null);
+      return;
+    }
+
+    setIsPlanningPatch(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/devcore/patch-plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal: content }),
+      });
+      if (!response.ok) {
+        throw new Error(`Patch planner responded ${response.status}`);
+      }
+      const planned = (await response.json()) as DevCorePatchPlannerResponse;
+      setPatchPreview(planned);
+      addHistory({
+        kind: "patch",
+        title: planned.intent,
+        detail: `${planned.files.length} archivos - ${planned.suggested_tests.length} tests`,
+      });
+    } catch {
+      setPatchPreview(null);
+    } finally {
+      setIsPlanningPatch(false);
     }
   }
 
@@ -376,10 +437,11 @@ export default function Home() {
       addHistory({
         kind: "parse",
         title: parsed.intent,
-        detail: `${parsed.policy_action} · ${parsed.cyber_category}`,
+        detail: `${parsed.policy_action} - ${parsed.cyber_category}`,
       });
       await renderTemplateForParse(parsed);
       await prepareExecutionForParse(content, parsed);
+      await preparePatchPlan(content, parsed);
 
       const response = await fetch(`${apiUrl}/api/v1/chat`, {
         method: "POST",
@@ -432,6 +494,7 @@ export default function Home() {
       setParseResult(null);
       setTemplatePreview(null);
       setExecutionPreview(null);
+      setPatchPreview(null);
       setWorkbenchHistory([]);
       setMessages([
       {
@@ -563,6 +626,16 @@ export default function Home() {
                     className="max-h-36 min-h-11 flex-1 resize-none rounded-md border-0 bg-transparent px-3 py-3 text-base leading-6 text-slate-950 outline-none placeholder:text-slate-400"
                   />
                   <button
+                    type="button"
+                    onClick={() => void sendMessage()}
+                    disabled={!input.trim() || isSending}
+                    className="hidden h-11 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700 transition hover:border-sky-300 hover:bg-white hover:text-sky-900 disabled:cursor-not-allowed disabled:opacity-50 sm:inline-flex"
+                    title="Preparar patch plan"
+                  >
+                    <Code2 className="h-4 w-4" />
+                    Patch plan
+                  </button>
+                  <button
                     type="submit"
                     disabled={!input.trim() || isSending}
                     className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-slate-950 text-white transition hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-slate-300"
@@ -633,7 +706,7 @@ export default function Home() {
                     )}
                   </div>
                   <p className="mt-2 text-sm">
-                    {parseResult.cyber_category} · {parseResult.allowed_environment}
+                    {parseResult.cyber_category} - {parseResult.allowed_environment}
                   </p>
                   <p className="mt-2 text-sm leading-6">{parseResult.safety_summary}</p>
                   {parseResult.double_confirmation_required ? (
@@ -705,7 +778,7 @@ export default function Home() {
                       <div className={`rounded-md border px-3 py-2 text-sm ${executionStatusClasses(executionPreview.status)}`}>
                         <p className="font-semibold">{executionPreview.status}</p>
                         <p className="mt-1 text-xs">
-                          {executionPreview.cyber_category} · {executionPreview.policy_action}
+                          {executionPreview.cyber_category} - {executionPreview.policy_action}
                         </p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
@@ -754,6 +827,117 @@ export default function Home() {
                       Aparece cuando la intencion sea ejecutar un comando.
                     </p>
                   )}
+                </div>
+
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Sprint 23
+                      </p>
+                      <h3 className="mt-1 text-base font-semibold text-slate-950">
+                        Patch preview
+                      </h3>
+                    </div>
+                    <AlertTriangle className="h-5 w-5 text-sky-700" />
+                  </div>
+
+                  {isPlanningPatch ? (
+                    <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Preparando patch plan...
+                    </div>
+                  ) : patchPreview ? (
+                    <div className="mt-4 space-y-4">
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                          {patchPreview.intent}
+                        </span>
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                          preview only
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                          {patchPreview.policy_action}
+                        </span>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Archivos objetivo
+                        </p>
+                        <div className="mt-2 space-y-2">
+                          {patchPreview.files.map((file) => (
+                            <div
+                              key={`${file.path}-${file.change_type}`}
+                              className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                            >
+                              <p className="break-words font-medium text-slate-800">{file.path}</p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {file.change_type} - {file.rationale}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Tests sugeridos
+                        </p>
+                        <div className="mt-2 space-y-2">
+                          {patchPreview.suggested_tests.map((test) => (
+                            <code
+                              key={test}
+                              className="block rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
+                            >
+                              {test}
+                            </code>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Diff preview
+                        </p>
+                        <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+                          <code>{patchPreview.diff_preview}</code>
+                        </pre>
+                      </div>
+
+                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                        No aplica cambios. Sprint 24 abrira el gate de aplicacion con confirmacion,
+                        auditoria y validacion previa.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                        Cuando pidas crear o modificar codigo, el chat prepara un patch plan para
+                        revisar antes de tocar archivos.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void sendMessage("Crea POST /api/v1/tools en FastAPI con tests.")}
+                        disabled={isSending}
+                        className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 transition hover:border-sky-300 hover:bg-white hover:text-sky-900 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Code2 className="h-4 w-4" />
+                        Preparar patch plan
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-slate-200 bg-slate-950 p-4 text-sm leading-6 text-slate-200">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    Sprint 24 preparado
+                  </p>
+                  <p className="mt-2 font-medium text-white">Apply Patch Gate v1</p>
+                  <p className="mt-1 text-slate-300">
+                    El siguiente paso toma un patch_plan_id, exige confirmacion explicita, registra
+                    auditoria y recien entonces habilita aplicar cambios controlados.
+                  </p>
                 </div>
 
                 <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -859,7 +1043,7 @@ export default function Home() {
                 </div>
               ) : (
                 <p className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
-                  Aca queda un rastro corto de interpretaciones, plantillas y sandbox.
+                  Aca queda un rastro corto de interpretaciones, plantillas, sandbox y patch plans.
                 </p>
               )}
             </div>
@@ -867,8 +1051,8 @@ export default function Home() {
             <div className="mt-5 rounded-lg border border-slate-200 bg-slate-950 p-4 text-sm leading-6 text-slate-200">
               <p className="font-medium text-white">Regla de trabajo</p>
               <p className="mt-1 text-slate-300">
-                Primero interpretar. Luego planificar. La ejecucion queda para sprints posteriores,
-                con sandbox y auditoria.
+                Primero interpretar. Luego planificar. Los patch previews no aplican cambios; la
+                ejecucion queda bajo sandbox, confirmacion y auditoria.
               </p>
             </div>
           </aside>
