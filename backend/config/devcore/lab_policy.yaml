@@ -1,0 +1,23 @@
+policy_id: devcore_cyber_lab_policy
+version: "1.0"
+default_environment: local_dev
+allow_categories:
+  - general
+  - defensive_review
+  - safe_coding
+  - template_generation
+confirm_categories:
+  - local_execution
+  - infrastructure_change
+  - credential_handling
+  - data_migration
+block_categories:
+  - credential_theft
+  - malware
+  - phishing
+  - evasion
+  - destructive_action
+  - unauthorized_access
+double_confirm_risk_levels:
+  - high
+  - blocked

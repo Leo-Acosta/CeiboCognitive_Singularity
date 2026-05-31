@@ -5,11 +5,17 @@ from ceibo_core.core.config import settings
 
 
 class LLMGateway:
-    async def generate(self, system_prompt: str, user_message: str) -> str:
+    async def generate(
+        self,
+        system_prompt: str,
+        user_message: str,
+        context: list[str] | None = None,
+    ) -> str:
         if settings.default_llm_provider == "ceibo_local":
             result = await ceibo_engine.generate(
                 system_prompt=system_prompt,
                 user_message=user_message,
+                context=context,
             )
             return result.response
         if settings.default_llm_provider == "ollama":

@@ -16,10 +16,20 @@ class CoreOrchestrator(BaseAgent):
 
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
         memory_context = request.metadata.get("memory_context", [])
+        devcore_parse = request.metadata.get("devcore_parse")
         context_block = ""
         if memory_context:
             context_block = "\n\nContexto reciente recuperado:\n" + "\n".join(
                 f"- {item}" for item in memory_context[-8:]
+            )
+        parser_context = []
+        if isinstance(devcore_parse, dict):
+            parser_context.append(
+                "DevCore parse: "
+                f"intent={devcore_parse.get('intent')}; "
+                f"risk={devcore_parse.get('risk_level')}; "
+                f"action={devcore_parse.get('recommended_action')}; "
+                f"summary={devcore_parse.get('structured_response')}"
             )
         system_prompt = (
             "Eres CEIBO CORE, un asistente IA enterprise orientado a agentes, "
@@ -28,7 +38,11 @@ class CoreOrchestrator(BaseAgent):
             "clara, profesional y accionable. Usa el contexto recuperado solo si ayuda "
             f"a responder con continuidad.{context_block}"
         )
-        response = await llm_gateway.generate(system_prompt=system_prompt, user_message=request.message)
+        response = await llm_gateway.generate(
+            system_prompt=system_prompt,
+            user_message=request.message,
+            context=[*parser_context, *memory_context],
+        )
         return ChatResponse(
             response=response,
             agent=self.role,

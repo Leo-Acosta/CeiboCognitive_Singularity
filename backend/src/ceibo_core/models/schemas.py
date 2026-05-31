@@ -223,6 +223,120 @@ class DevCorePlanResponse(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class DevCoreParseRequest(BaseModel):
+    message: str = Field(min_length=1)
+    user_id: str = "local-user"
+    context: list[str] = Field(default_factory=list)
+
+
+class DevCoreParsedParameter(BaseModel):
+    name: str
+    value: str
+    confidence: float = Field(ge=0, le=1)
+    source: str = "inferred"
+
+
+class DevCoreValidationIssue(BaseModel):
+    severity: str
+    code: str
+    message: str
+
+
+class DevCoreParseResponse(BaseModel):
+    parse_id: str = Field(default_factory=lambda: str(uuid4()))
+    original_message: str
+    normalized_message: str
+    intent: str
+    sub_intents: list[str] = Field(default_factory=list)
+    confidence: float = Field(ge=0, le=1)
+    risk_level: str
+    parameters: list[DevCoreParsedParameter] = Field(default_factory=list)
+    missing_parameters: list[str] = Field(default_factory=list)
+    normalized_terms: dict[str, str] = Field(default_factory=dict)
+    validation_issues: list[DevCoreValidationIssue] = Field(default_factory=list)
+    requires_confirmation: bool = False
+    double_confirmation_required: bool = False
+    cyber_category: str = "general"
+    policy_action: str = "allow"
+    allowed_environment: str = "local_dev"
+    safety_summary: str = ""
+    recommended_action: str
+    structured_response: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class DevCoreSafetyPolicy(BaseModel):
+    policy_id: str
+    version: str
+    default_environment: str
+    allow_categories: list[str] = Field(default_factory=list)
+    confirm_categories: list[str] = Field(default_factory=list)
+    block_categories: list[str] = Field(default_factory=list)
+    double_confirm_risk_levels: list[str] = Field(default_factory=list)
+
+
+class DevCoreTemplateParameter(BaseModel):
+    name: str
+    description: str
+    required: bool = True
+    default: str | None = None
+
+
+class DevCoreTemplateRecord(BaseModel):
+    template_id: str
+    name: str
+    language: str
+    description: str
+    parameters: list[DevCoreTemplateParameter]
+    safety_notes: list[str] = Field(default_factory=list)
+
+
+class DevCoreTemplateRenderRequest(BaseModel):
+    template_id: str = Field(min_length=1)
+    parameters: dict[str, str] = Field(default_factory=dict)
+    user_id: str = "local-user"
+
+
+class DevCoreTemplateRenderResponse(BaseModel):
+    render_id: str = Field(default_factory=lambda: str(uuid4()))
+    template_id: str
+    language: str
+    artifact_name: str
+    content: str
+    missing_parameters: list[str] = Field(default_factory=list)
+    validation_issues: list[DevCoreValidationIssue] = Field(default_factory=list)
+    safe_to_execute: bool = False
+    requires_review: bool = True
+    safety_notes: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class DevCoreExecutionRequest(BaseModel):
+    command: str = Field(min_length=1)
+    working_directory: str = "."
+    user_id: str = "local-user"
+    confirmation_phrase: str | None = None
+    timeout_seconds: int = Field(default=30, ge=1, le=120)
+
+
+class DevCoreExecutionResponse(BaseModel):
+    execution_id: str = Field(default_factory=lambda: str(uuid4()))
+    command: str
+    working_directory: str
+    status: str
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    risk_level: str
+    cyber_category: str
+    policy_action: str
+    requires_confirmation: bool
+    double_confirmation_required: bool
+    validation_issues: list[DevCoreValidationIssue] = Field(default_factory=list)
+    audit_notes: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class MemoryRememberRequest(BaseModel):
     session_id: str = Field(min_length=1)
     content: str = Field(min_length=1)

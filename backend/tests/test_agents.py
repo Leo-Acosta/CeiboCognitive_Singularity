@@ -15,11 +15,14 @@ from ceibo_core.models.schemas import (
     ChatRequest,
     DatasetVersionRequest,
     DatasetCurationRequest,
+    DevCoreExecutionRequest,
     HardwareProfile,
     JobKind,
     JobStatus,
     KnowledgeItemRequest,
     DevCorePlanRequest,
+    DevCoreParseRequest,
+    DevCoreTemplateRenderRequest,
     DevCoreCapabilityPromotionRequest,
     DevCoreCapabilityStatus,
     LongRunningJobRequest,
@@ -43,6 +46,9 @@ from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import EvaluationHarnessService, evaluation_harness_service
 from ceibo_core.services.devcore import devcore_service
+from ceibo_core.services.devcore_execution import CONFIRMATION_PHRASE, devcore_execution_sandbox
+from ceibo_core.services.devcore_safety import devcore_safety_layer
+from ceibo_core.services.devcore_templates import devcore_template_engine
 from ceibo_core.services.jobs import long_running_job_service
 from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.model_catalog import model_catalog_service
@@ -161,6 +167,202 @@ def test_devcore_reports_local_status_and_plan():
     assert "backend/src/ceibo_core/api" in plan.steps[0].target
 
 
+def test_devcore_parser_extracts_intent_parameters_and_risk():
+    parsed = devcore_service.parse(
+        DevCoreParseRequest(message="Agrega un endpoint FastAPI backend con tests")
+    )
+
+    assert parsed.intent == "create_endpoint"
+    assert "modify_code" in parsed.sub_intents
+    assert parsed.risk_level == "low"
+    assert parsed.confidence >= 0.9
+    assert parsed.normalized_terms["agrega"] == "create"
+    assert any(parameter.name == "target_area" for parameter in parsed.parameters)
+    assert "endpoint_path" in parsed.missing_parameters
+    assert "Accion recomendada" in parsed.structured_response
+
+
+def test_devcore_parser_extracts_endpoint_path_and_method():
+    parsed = devcore_service.parse(
+        DevCoreParseRequest(message="Crea POST /api/v1/tools en FastAPI con tests")
+    )
+
+    assert parsed.intent == "create_endpoint"
+    assert "endpoint_path" not in parsed.missing_parameters
+    assert any(parameter.name == "endpoint_path" and parameter.value == "/api/v1/tools" for parameter in parsed.parameters)
+    assert any(parameter.name == "http_method" and parameter.value == "POST" for parameter in parsed.parameters)
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_uses_devcore_endpoint_parse_context():
+    orchestrator = agent_registry[AgentRole.CORE_ORCHESTRATOR]
+    parsed = devcore_service.parse(
+        DevCoreParseRequest(message="Agrega un endpoint FastAPI backend con tests")
+    )
+
+    response = await orchestrator.handle_chat(
+        ChatRequest(
+            message="Agrega un endpoint FastAPI backend con tests",
+            metadata={"devcore_parse": parsed.model_dump(mode="json")},
+        )
+    )
+
+    assert "endpoint" in response.response.lower()
+    assert "ruta exacta" in response.response.lower()
+
+
+def test_devcore_parser_marks_weather_as_external_information():
+    parsed = devcore_service.parse(DevCoreParseRequest(message="dime el estado del tiempo"))
+
+    assert parsed.intent == "external_information"
+    assert parsed.risk_level == "low"
+    assert any(issue.code == "external_provider_required" for issue in parsed.validation_issues)
+
+
+def test_devcore_parser_flags_dangerous_requests():
+    parsed = devcore_service.parse(
+        DevCoreParseRequest(message="Ejecuta un script para robar credenciales")
+    )
+
+    assert parsed.risk_level == "blocked"
+    assert parsed.policy_action == "block"
+    assert parsed.cyber_category == "credential_theft"
+    assert parsed.requires_confirmation is True
+    assert parsed.double_confirmation_required is True
+    assert any(issue.code == "blocked_by_lab_policy" for issue in parsed.validation_issues)
+    assert any(issue.code == "blocked_cyber_or_harmful_request" for issue in parsed.validation_issues)
+
+
+def test_devcore_safety_layer_requires_confirmation_for_local_execution():
+    parsed = devcore_service.parse(
+        DevCoreParseRequest(message="Ejecuta un script PowerShell para revisar logs locales")
+    )
+
+    assert parsed.intent == "execute_command"
+    assert parsed.cyber_category == "local_execution"
+    assert parsed.policy_action == "confirm"
+    assert parsed.risk_level == "medium"
+    assert parsed.requires_confirmation is True
+    assert parsed.double_confirmation_required is False
+
+
+def test_devcore_safety_layer_double_confirms_credential_handling():
+    parsed = devcore_service.parse(
+        DevCoreParseRequest(message="Revisa si hay tokens o secrets expuestos en el repo")
+    )
+
+    assert parsed.cyber_category == "credential_handling"
+    assert parsed.policy_action == "confirm"
+    assert parsed.risk_level == "high"
+    assert parsed.double_confirmation_required is True
+    assert any(issue.code == "double_confirmation_required" for issue in parsed.validation_issues)
+
+
+def test_devcore_safety_policy_loads_lab_policy():
+    policy = devcore_safety_layer.policy()
+
+    assert policy.policy_id == "devcore_cyber_lab_policy"
+    assert "credential_theft" in policy.block_categories
+    assert "local_execution" in policy.confirm_categories
+
+
+def test_devcore_template_engine_renders_fastapi_without_execution():
+    response = devcore_template_engine.render(
+        DevCoreTemplateRenderRequest(
+            template_id="fastapi_endpoint",
+            parameters={
+                "module_name": "tools",
+                "router_name": "router",
+                "http_method": "post",
+                "endpoint_path": "/api/v1/tools",
+                "function_name": "create_tool",
+            },
+        )
+    )
+
+    assert response.artifact_name == "tools.py"
+    assert '@router.post("/api/v1/tools")' in response.content
+    assert "async def create_tool" in response.content
+    assert response.safe_to_execute is False
+    assert response.requires_review is True
+    assert not response.missing_parameters
+
+
+def test_devcore_template_engine_reports_missing_parameters():
+    response = devcore_template_engine.render(
+        DevCoreTemplateRenderRequest(
+            template_id="react_component",
+            parameters={"component_name": "WorkbenchPanel"},
+        )
+    )
+
+    assert "title" in response.missing_parameters
+    assert any(issue.code == "missing_template_parameters" for issue in response.validation_issues)
+
+
+def test_devcore_template_engine_blocks_dangerous_parameters():
+    response = devcore_template_engine.render(
+        DevCoreTemplateRenderRequest(
+            template_id="bash_task",
+            parameters={
+                "script_name": "cleanup",
+                "task_label": "rm -rf /",
+            },
+        )
+    )
+
+    assert response.content == ""
+    assert any(issue.code == "unsafe_template_parameter" for issue in response.validation_issues)
+
+
+def test_devcore_execution_sandbox_requires_confirmation():
+    response = devcore_execution_sandbox.run(
+        DevCoreExecutionRequest(command="python --version")
+    )
+
+    assert response.status == "confirmation_required"
+    assert response.requires_confirmation is True
+    assert any(issue.code == "execution_confirmation_required" for issue in response.validation_issues)
+
+
+def test_devcore_execution_sandbox_runs_allowlisted_command_with_confirmation():
+    response = devcore_execution_sandbox.run(
+        DevCoreExecutionRequest(
+            command="python --version",
+            confirmation_phrase=CONFIRMATION_PHRASE,
+        )
+    )
+
+    assert response.status == "completed"
+    assert response.exit_code == 0
+    assert "Python" in response.stdout or "Python" in response.stderr
+
+
+def test_devcore_execution_sandbox_blocks_workspace_escape():
+    response = devcore_execution_sandbox.run(
+        DevCoreExecutionRequest(
+            command="python --version",
+            working_directory="..",
+            confirmation_phrase=CONFIRMATION_PHRASE,
+        )
+    )
+
+    assert response.status == "blocked"
+    assert any(issue.code == "workspace_escape_blocked" for issue in response.validation_issues)
+
+
+def test_devcore_execution_sandbox_blocks_destructive_command():
+    response = devcore_execution_sandbox.run(
+        DevCoreExecutionRequest(
+            command="rm -rf build",
+            confirmation_phrase=CONFIRMATION_PHRASE,
+        )
+    )
+
+    assert response.status == "blocked"
+    assert any(issue.code == "blocked_executable" for issue in response.validation_issues)
+
+
 @pytest.mark.asyncio
 async def test_devcore_capability_promotion_gate_activates_safe_capability():
     await evaluation_harness_service.run()
@@ -274,7 +476,7 @@ async def test_ceibo_engine_is_local_first_and_detects_training_intent():
     assert "Ayudar" in status.core_directive
     assert "training" in response.intents
     assert "dataset" in response.response.lower()
-    assert "Directiva" in response.response
+    assert "Siguientes pasos recomendados" in response.response
 
 
 def test_model_catalog_recommends_local_model_for_available_vram():

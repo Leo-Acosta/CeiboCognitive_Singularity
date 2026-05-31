@@ -8,14 +8,25 @@ from ceibo_core.models.schemas import (
     DevCoreCapabilityPromotionDecision,
     DevCoreCapabilityPromotionRequest,
     DevCoreCapabilityRecord,
+    DevCoreExecutionRequest,
+    DevCoreExecutionResponse,
+    DevCoreParseRequest,
+    DevCoreParseResponse,
     DevCorePlanRequest,
     DevCorePlanResponse,
+    DevCoreSafetyPolicy,
     DevCoreStatus,
+    DevCoreTemplateRecord,
+    DevCoreTemplateRenderRequest,
+    DevCoreTemplateRenderResponse,
     KnowledgeItemRequest,
     SecurityAction,
 )
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.devcore import devcore_service
+from ceibo_core.services.devcore_execution import devcore_execution_sandbox
+from ceibo_core.services.devcore_safety import devcore_safety_layer
+from ceibo_core.services.devcore_templates import devcore_template_engine
 from ceibo_core.services.memory import knowledge_service
 
 router = APIRouter(prefix="/devcore", tags=["devcore"])
@@ -31,6 +42,100 @@ async def devcore_capabilities(
     auth: AuthContext = Depends(get_auth_context),
 ) -> list[DevCoreCapabilityRecord]:
     return devcore_service.capabilities_overview()
+
+
+@router.get("/safety/policy", response_model=DevCoreSafetyPolicy)
+async def devcore_safety_policy(
+    auth: AuthContext = Depends(get_auth_context),
+) -> DevCoreSafetyPolicy:
+    return devcore_safety_layer.policy()
+
+
+@router.get("/templates", response_model=list[DevCoreTemplateRecord])
+async def devcore_templates(
+    auth: AuthContext = Depends(get_auth_context),
+) -> list[DevCoreTemplateRecord]:
+    return devcore_template_engine.list_templates()
+
+
+@router.post("/templates/render", response_model=DevCoreTemplateRenderResponse)
+async def render_devcore_template(
+    request: DevCoreTemplateRenderRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.RUN_DEVCORE_PLAN, "ceibo_devcore")
+    ),
+) -> DevCoreTemplateRenderResponse:
+    response = devcore_template_engine.render(request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="devcore.template_render",
+        actor="ceibo_devcore",
+        action=SecurityAction.RUN_DEVCORE_PLAN,
+        allowed=not any(issue.severity == "error" for issue in response.validation_issues),
+        payload={
+            "render_id": response.render_id,
+            "template_id": response.template_id,
+            "language": response.language,
+            "safe_to_execute": response.safe_to_execute,
+            "requires_review": response.requires_review,
+        },
+    )
+    return response
+
+
+@router.post("/execute", response_model=DevCoreExecutionResponse)
+async def execute_devcore_sandbox(
+    request: DevCoreExecutionRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.RUN_DEVCORE_PLAN, "ceibo_devcore")
+    ),
+) -> DevCoreExecutionResponse:
+    response = devcore_execution_sandbox.run(request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="devcore.sandbox_execution",
+        actor="ceibo_devcore",
+        action=SecurityAction.RUN_DEVCORE_PLAN,
+        allowed=response.status in {"completed", "failed"},
+        payload={
+            "execution_id": response.execution_id,
+            "status": response.status,
+            "command": response.command,
+            "working_directory": response.working_directory,
+            "risk_level": response.risk_level,
+            "cyber_category": response.cyber_category,
+            "policy_action": response.policy_action,
+        },
+    )
+    return response
+
+
+@router.post("/parse", response_model=DevCoreParseResponse)
+async def parse_devcore_language(
+    request: DevCoreParseRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(get_auth_context),
+) -> DevCoreParseResponse:
+    response = devcore_service.parse(request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="devcore.parse",
+        actor="ceibo_devcore",
+        action=SecurityAction.READ_STATUS,
+        allowed=response.risk_level != "blocked",
+        payload={
+            "parse_id": response.parse_id,
+            "intent": response.intent,
+            "risk_level": response.risk_level,
+            "requires_confirmation": response.requires_confirmation,
+        },
+    )
+    return response
 
 
 @router.post("/capabilities/promote", response_model=DevCoreCapabilityPromotionDecision)

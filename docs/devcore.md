@@ -10,6 +10,14 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 - Planificacion de cambios.
 - Recomendacion de agente.
 - Ruteo de checks.
+- Parser controlado de lenguaje natural: intenciones, parametros, sinonimos,
+  riesgo, validacion y respuesta estructurada.
+- Template Engine seguro: plantillas Python, PowerShell, Bash, FastAPI, React y
+  SQL sin escritura ni ejecucion automatica.
+- Cyber Safety Layer: clasificacion cyber, `lab_policy.yaml`, confirmacion,
+  doble confirmacion y bloqueo de solicitudes peligrosas.
+- Execution Sandbox v1: ejecucion controlada dentro del workspace con allowlist,
+  confirmacion explicita y auditoria.
 - Automatizacion local segura.
 - Auditoria de planes generados.
 - Persistencia de planes como Knowledge Base.
@@ -19,10 +27,25 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 
 - `GET /api/v1/devcore/status`
 - `GET /api/v1/devcore/capabilities`
+- `GET /api/v1/devcore/safety/policy`
+- `GET /api/v1/devcore/templates`
+- `POST /api/v1/devcore/templates/render`
+- `POST /api/v1/devcore/execute`
+- `POST /api/v1/devcore/parse`
 - `POST /api/v1/devcore/capabilities/promote`
 - `POST /api/v1/devcore/plan`
 
-Ejemplo:
+Ejemplo de parse:
+
+```json
+{
+  "message": "agrega un endpoint FastAPI backend con tests",
+  "user_id": "local-user",
+  "context": []
+}
+```
+
+Ejemplo de plan:
 
 ```json
 {
@@ -32,12 +55,67 @@ Ejemplo:
 }
 ```
 
+Ejemplo de render de plantilla:
+
+```json
+{
+  "template_id": "fastapi_endpoint",
+  "parameters": {
+    "module_name": "tools",
+    "router_name": "router",
+    "http_method": "post",
+    "endpoint_path": "/api/v1/tools",
+    "function_name": "create_tool"
+  }
+}
+```
+
+La respuesta incluye `content`, `artifact_name`, `validation_issues`,
+`safe_to_execute=false` y `requires_review=true`.
+
+Ejemplo de ejecucion sandbox:
+
+```json
+{
+  "command": "python --version",
+  "working_directory": ".",
+  "confirmation_phrase": "CONFIRM_EXECUTION",
+  "timeout_seconds": 30
+}
+```
+
+Sin `CONFIRM_EXECUTION`, DevCore devuelve `confirmation_required`. Los comandos
+se ejecutan con `shell=false`, dentro del workspace resuelto y con allowlist de
+ejecutables.
+
 ## Limites actuales
 
 - No escribe archivos por su cuenta.
 - No ejecuta comandos.
+- No aplica plantillas sin revision humana.
+- No ejecuta comandos fuera del workspace.
+- No permite operadores de shell, comandos no allowlisted ni ejecutables
+  destructivos en Sandbox v1.
+- Bloquea solicitudes de robo de credenciales, malware, phishing, evasion,
+  destruccion o acceso no autorizado.
+- Exige confirmacion para ejecucion local, cambios de infraestructura, manejo
+  de credenciales y migraciones.
+- Exige doble confirmacion para riesgos altos o bloqueados.
 - No aplica cambios destructivos.
 - No reemplaza Audit Trail ni RBAC.
+
+## Politica de laboratorio
+
+La politica vive en `backend/config/devcore/lab_policy.yaml`. Define categorias
+permitidas, categorias que requieren confirmacion y categorias bloqueadas. La
+salida del parser incluye:
+
+- `cyber_category`
+- `policy_action`
+- `allowed_environment`
+- `requires_confirmation`
+- `double_confirmation_required`
+- `safety_summary`
 
 La escritura y ejecucion controlada quedan para sprints posteriores, detras de
 gates de seguridad, auditoria y evaluacion.
