@@ -26,6 +26,7 @@ class DevCorePatchApplyGate:
         validation_issues = list(parsed.validation_issues)
         validation_issues.extend(self._validate_plan_files(request.files))
         validation_issues.extend(self._validate_changes(request.proposed_changes))
+        validation_issues.extend(self._validate_changes_match_plan(request.files, request.proposed_changes))
 
         if parsed.policy_action == "block":
             validation_issues.append(
@@ -132,6 +133,26 @@ class DevCorePatchApplyGate:
                         severity="error",
                         code="patch_content_too_large",
                         message="El contenido propuesto excede el limite de Apply Gate v1.",
+                    )
+                )
+        return issues
+
+    def _validate_changes_match_plan(
+        self,
+        files: list[DevCorePatchPlanFile],
+        changes: list[DevCorePatchChange],
+    ) -> list[DevCoreValidationIssue]:
+        if not files or not changes:
+            return []
+        planned_paths = {file.path.replace("\\", "/") for file in files}
+        issues: list[DevCoreValidationIssue] = []
+        for change in changes:
+            if change.path.replace("\\", "/") not in planned_paths:
+                issues.append(
+                    DevCoreValidationIssue(
+                        severity="error",
+                        code="patch_change_not_in_plan",
+                        message=f"El cambio {change.path} no pertenece al patch plan aprobado.",
                     )
                 )
         return issues

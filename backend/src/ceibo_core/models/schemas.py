@@ -381,6 +381,26 @@ class DevCorePatchApplyRequest(BaseModel):
     user_id: str = "local-user"
 
 
+class DevCorePatchProposeRequest(BaseModel):
+    patch_plan_id: str = Field(min_length=1)
+    goal: str = Field(min_length=1)
+    files: list[DevCorePatchPlanFile] = Field(default_factory=list)
+    user_id: str = "local-user"
+    context: list[str] = Field(default_factory=list)
+
+
+class DevCorePatchProposeResponse(BaseModel):
+    proposal_id: str = Field(default_factory=lambda: str(uuid4()))
+    patch_plan_id: str
+    goal: str
+    proposed_changes: list[DevCorePatchChange] = Field(default_factory=list)
+    diff_preview: str = ""
+    suggested_tests: list[str] = Field(default_factory=list)
+    validation_issues: list[DevCoreValidationIssue] = Field(default_factory=list)
+    applies_changes: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class DevCorePatchApplyResponse(BaseModel):
     apply_id: str = Field(default_factory=lambda: str(uuid4()))
     patch_plan_id: str

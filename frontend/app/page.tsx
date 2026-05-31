@@ -101,6 +101,12 @@ type DevCorePatchPlanFile = {
   rationale: string;
 };
 
+type DevCorePatchChange = {
+  path: string;
+  change_type: string;
+  content: string;
+};
+
 type DevCorePatchPlannerResponse = {
   patch_plan_id: string;
   goal: string;
@@ -113,6 +119,17 @@ type DevCorePatchPlannerResponse = {
   steps: string[];
   suggested_tests: string[];
   diff_preview: string;
+  validation_issues: DevCoreTemplateIssue[];
+  applies_changes: boolean;
+};
+
+type DevCorePatchProposeResponse = {
+  proposal_id: string;
+  patch_plan_id: string;
+  goal: string;
+  proposed_changes: DevCorePatchChange[];
+  diff_preview: string;
+  suggested_tests: string[];
   validation_issues: DevCoreTemplateIssue[];
   applies_changes: boolean;
 };
@@ -262,12 +279,14 @@ export default function Home() {
   const [templatePreview, setTemplatePreview] = useState<DevCoreTemplateRenderResponse | null>(null);
   const [executionPreview, setExecutionPreview] = useState<DevCoreExecutionResponse | null>(null);
   const [patchPreview, setPatchPreview] = useState<DevCorePatchPlannerResponse | null>(null);
+  const [patchProposal, setPatchProposal] = useState<DevCorePatchProposeResponse | null>(null);
   const [patchApplyPreview, setPatchApplyPreview] = useState<DevCorePatchApplyResponse | null>(null);
   const [workbenchHistory, setWorkbenchHistory] = useState<WorkbenchHistoryItem[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
+  const [isProposingPatch, setIsProposingPatch] = useState(false);
   const [isCheckingPatchGate, setIsCheckingPatchGate] = useState(false);
   const [isConfirmingExecution, setIsConfirmingExecution] = useState(false);
   const [connection, setConnection] = useState<"ready" | "offline">("ready");
@@ -407,6 +426,7 @@ export default function Home() {
   async function preparePatchPlan(content: string, parse: DevCoreParseResponse) {
     if (!shouldPreparePatchPlan(parse)) {
       setPatchPreview(null);
+      setPatchProposal(null);
       setPatchApplyPreview(null);
       return;
     }
@@ -423,21 +443,58 @@ export default function Home() {
       }
       const planned = (await response.json()) as DevCorePatchPlannerResponse;
       setPatchPreview(planned);
+      setPatchProposal(null);
       setPatchApplyPreview(null);
       addHistory({
         kind: "patch",
         title: planned.intent,
         detail: `${planned.files.length} archivos - ${planned.suggested_tests.length} tests`,
       });
+      await proposePatchChanges(planned);
     } catch {
       setPatchPreview(null);
+      setPatchProposal(null);
       setPatchApplyPreview(null);
     } finally {
       setIsPlanningPatch(false);
     }
   }
 
-  async function checkPatchApplyGate() {
+  async function proposePatchChanges(plan = patchPreview) {
+    if (!plan || isProposingPatch) {
+      return;
+    }
+
+    setIsProposingPatch(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/devcore/patch-propose`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patch_plan_id: plan.patch_plan_id,
+          goal: plan.goal,
+          files: plan.files,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Patch proposer responded ${response.status}`);
+      }
+      const proposal = (await response.json()) as DevCorePatchProposeResponse;
+      setPatchProposal(proposal);
+      setPatchApplyPreview(null);
+      addHistory({
+        kind: "patch",
+        title: "proposal ready",
+        detail: `${proposal.proposed_changes.length} cambios propuestos`,
+      });
+    } catch {
+      setPatchProposal(null);
+    } finally {
+      setIsProposingPatch(false);
+    }
+  }
+
+  async function checkPatchApplyGate(applyConfirmed = false) {
     if (!patchPreview || isCheckingPatchGate) {
       return;
     }
@@ -451,7 +508,8 @@ export default function Home() {
           patch_plan_id: patchPreview.patch_plan_id,
           goal: patchPreview.goal,
           files: patchPreview.files,
-          proposed_changes: [],
+          proposed_changes: patchProposal?.proposed_changes ?? [],
+          confirmation_phrase: applyConfirmed ? "APPLY_PATCH" : undefined,
         }),
       });
       if (!response.ok) {
@@ -549,6 +607,7 @@ export default function Home() {
       setTemplatePreview(null);
       setExecutionPreview(null);
       setPatchPreview(null);
+      setPatchProposal(null);
       setPatchApplyPreview(null);
       setWorkbenchHistory([]);
       setMessages([
@@ -960,24 +1019,76 @@ export default function Home() {
                         </pre>
                       </div>
 
+                      <div>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            Cambios propuestos
+                          </p>
+                          {isProposingPatch ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                          ) : null}
+                        </div>
+                        {patchProposal ? (
+                          <div className="mt-2 space-y-3">
+                            {patchProposal.proposed_changes.map((change) => (
+                              <div
+                                key={`${change.path}-${change.change_type}`}
+                                className="rounded-md border border-slate-200 bg-slate-50"
+                              >
+                                <div className="border-b border-slate-200 px-3 py-2">
+                                  <p className="break-words text-sm font-medium text-slate-800">
+                                    {change.path}
+                                  </p>
+                                  <p className="text-xs text-slate-500">{change.change_type}</p>
+                                </div>
+                                <pre className="max-h-64 overflow-auto p-3 text-xs leading-5 text-slate-700">
+                                  <code>{change.content}</code>
+                                </pre>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void proposePatchChanges()}
+                            disabled={isProposingPatch}
+                            className="mt-2 inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 transition hover:border-sky-300 hover:bg-white hover:text-sky-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Code2 className="h-4 w-4" />
+                            Generar proposed_changes
+                          </button>
+                        )}
+                      </div>
+
                       <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
                         No aplica cambios. El gate de Sprint 24 exige cambios propuestos y
                         confirmacion explicita antes de escribir archivos.
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => void checkPatchApplyGate()}
-                        disabled={isCheckingPatchGate}
-                        className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-slate-300"
-                      >
-                        {isCheckingPatchGate ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <ShieldCheck className="h-4 w-4" />
-                        )}
-                        Validar apply gate
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void checkPatchApplyGate()}
+                          disabled={isCheckingPatchGate}
+                          className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                          {isCheckingPatchGate ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <ShieldCheck className="h-4 w-4" />
+                          )}
+                          Validar gate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void checkPatchApplyGate(true)}
+                          disabled={isCheckingPatchGate || !patchProposal?.proposed_changes.length}
+                          className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:border-red-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <AlertTriangle className="h-4 w-4" />
+                          Aplicar con gate
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="mt-4 space-y-3">

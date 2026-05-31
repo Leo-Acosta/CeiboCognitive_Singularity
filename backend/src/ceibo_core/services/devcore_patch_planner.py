@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from ceibo_core.models.schemas import (
     DevCoreParseRequest,
     DevCorePatchPlanFile,
@@ -53,15 +55,15 @@ class DevCorePatchPlanner:
         if intent == "create_endpoint" or "fastapi" in goal or "backend" in goal:
             files.append(
                 DevCorePatchPlanFile(
-                    path="backend/src/ceibo_core/api/routes/devcore.py",
-                    change_type="modify",
-                    rationale="Agregar o conectar ruta FastAPI siguiendo el router existente.",
+                    path=f"backend/src/ceibo_core/api/routes/{self._module_name(goal)}.py",
+                    change_type="create",
+                    rationale="Crear router FastAPI aislado para revisar antes de integrarlo al app.",
                 )
             )
             files.append(
                 DevCorePatchPlanFile(
-                    path="backend/tests/test_agents.py",
-                    change_type="modify",
+                    path=f"backend/tests/test_{self._module_name(goal)}_api.py",
+                    change_type="create",
                     rationale="Cubrir contrato del endpoint o servicio con test enfocado.",
                 )
             )
@@ -121,6 +123,12 @@ class DevCorePatchPlanner:
         ]
         lines.extend(f"+# target: {file.path} ({file.change_type})" for file in files)
         return "\n".join(lines)
+
+    def _module_name(self, goal: str) -> str:
+        match = re.search(r"/api/v\d+/([a-zA-Z0-9_-]+)", goal)
+        if not match:
+            return "generated"
+        return match.group(1).replace("-", "_").lower()
 
 
 devcore_patch_planner = DevCorePatchPlanner()

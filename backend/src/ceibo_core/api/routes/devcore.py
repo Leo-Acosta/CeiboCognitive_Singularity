@@ -16,6 +16,8 @@ from ceibo_core.models.schemas import (
     DevCoreParseResponse,
     DevCorePatchPlannerRequest,
     DevCorePatchPlannerResponse,
+    DevCorePatchProposeRequest,
+    DevCorePatchProposeResponse,
     DevCorePlanRequest,
     DevCorePlanResponse,
     DevCoreSafetyPolicy,
@@ -31,6 +33,7 @@ from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.devcore_execution import devcore_execution_sandbox
 from ceibo_core.services.devcore_patch_apply import devcore_patch_apply_gate
 from ceibo_core.services.devcore_patch_planner import devcore_patch_planner
+from ceibo_core.services.devcore_patch_proposer import devcore_patch_proposer
 from ceibo_core.services.devcore_safety import devcore_safety_layer
 from ceibo_core.services.devcore_templates import devcore_template_engine
 from ceibo_core.services.memory import knowledge_service
@@ -169,6 +172,32 @@ async def apply_devcore_patch(
             "patch_plan_id": response.patch_plan_id,
             "status": response.status,
             "applied_files": response.applied_files,
+            "applies_changes": response.applies_changes,
+        },
+    )
+    return response
+
+
+@router.post("/patch-propose", response_model=DevCorePatchProposeResponse)
+async def propose_devcore_patch(
+    request: DevCorePatchProposeRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.RUN_DEVCORE_PLAN, "ceibo_devcore")
+    ),
+) -> DevCorePatchProposeResponse:
+    response = devcore_patch_proposer.propose(request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="devcore.patch_propose",
+        actor="ceibo_devcore",
+        action=SecurityAction.RUN_DEVCORE_PLAN,
+        allowed=not any(issue.severity == "error" for issue in response.validation_issues),
+        payload={
+            "proposal_id": response.proposal_id,
+            "patch_plan_id": response.patch_plan_id,
+            "change_count": len(response.proposed_changes),
             "applies_changes": response.applies_changes,
         },
     )

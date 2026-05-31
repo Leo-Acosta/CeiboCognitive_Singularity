@@ -20,6 +20,8 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
   confirmacion explicita y auditoria.
 - Patch Planner v1: prepara archivos objetivo, pasos, tests y diff preview sin
   aplicar cambios.
+- Patch Proposer v1: genera `proposed_changes` revisables desde un patch plan,
+  sin escribir archivos.
 - Apply Patch Gate v1: aplica cambios propuestos solo con `patch_plan_id`,
   confirmacion explicita, validacion de workspace y auditoria.
 - Automatizacion local segura.
@@ -36,6 +38,7 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 - `POST /api/v1/devcore/templates/render`
 - `POST /api/v1/devcore/execute`
 - `POST /api/v1/devcore/patch-plan`
+- `POST /api/v1/devcore/patch-propose`
 - `POST /api/v1/devcore/patch-apply`
 - `POST /api/v1/devcore/parse`
 - `POST /api/v1/devcore/capabilities/promote`
@@ -106,6 +109,25 @@ Ejemplo de patch planner:
 La respuesta incluye archivos objetivo, pasos, tests sugeridos y `diff_preview`.
 `applies_changes` siempre es `false` en v1.
 
+Ejemplo de patch proposer:
+
+```json
+{
+  "patch_plan_id": "plan-id",
+  "goal": "Crea POST /api/v1/tools en FastAPI con tests",
+  "files": [
+    {
+      "path": "backend/src/ceibo_core/api/routes/tools.py",
+      "change_type": "create",
+      "rationale": "crear router revisable"
+    }
+  ]
+}
+```
+
+La respuesta incluye `proposed_changes`, `diff_preview`, `suggested_tests` y
+`applies_changes=false`.
+
 Ejemplo de apply gate:
 
 ```json
@@ -138,6 +160,7 @@ por politica.
 
 - No escribe archivos sin un `patch-apply` confirmado.
 - No aplica patch plans desde el preview; requiere cambios propuestos y gate.
+- No aplica cambios que no pertenezcan a los archivos del patch plan.
 - No ejecuta comandos.
 - No aplica plantillas sin revision humana.
 - No ejecuta comandos fuera del workspace.
@@ -169,8 +192,8 @@ auditoria y evaluacion.
 
 ## Integraciones
 
-- Audit Trail registra `devcore.plan`, `devcore.patch_plan` y
-  `devcore.patch_apply`.
+- Audit Trail registra `devcore.plan`, `devcore.patch_plan`,
+  `devcore.patch_propose` y `devcore.patch_apply`.
 - Knowledge Base guarda el plan serializado con tags `devcore` y `plan`.
 - Evaluation Harness ejecuta `devcore.safe-planning`.
 - RBAC permite planificacion DevCore a `admin`, `operator` y `researcher`.

@@ -20,6 +20,7 @@ from ceibo_core.models.schemas import (
     DevCorePatchChange,
     DevCorePatchPlanFile,
     DevCorePatchPlannerRequest,
+    DevCorePatchProposeRequest,
     HardwareProfile,
     JobKind,
     JobStatus,
@@ -53,6 +54,7 @@ from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.devcore_execution import CONFIRMATION_PHRASE, devcore_execution_sandbox
 from ceibo_core.services.devcore_patch_apply import CONFIRM_PATCH_PHRASE, devcore_patch_apply_gate
 from ceibo_core.services.devcore_patch_planner import devcore_patch_planner
+from ceibo_core.services.devcore_patch_proposer import devcore_patch_proposer
 from ceibo_core.services.devcore_safety import devcore_safety_layer
 from ceibo_core.services.devcore_templates import devcore_template_engine
 from ceibo_core.services.jobs import long_running_job_service
@@ -376,7 +378,7 @@ def test_devcore_patch_planner_prepares_endpoint_plan_without_applying():
 
     assert plan.intent == "create_endpoint"
     assert plan.applies_changes is False
-    assert any(file.path.endswith("devcore.py") for file in plan.files)
+    assert any(file.path.endswith("tools.py") for file in plan.files)
     assert any("pytest" in test for test in plan.suggested_tests)
     assert "No files are modified" in plan.diff_preview
 
@@ -390,6 +392,26 @@ def test_devcore_patch_planner_blocks_policy_violations():
     assert plan.risk_level == "blocked"
     assert plan.applies_changes is False
     assert any(issue.code == "patch_planning_blocked_by_policy" for issue in plan.validation_issues)
+
+
+def test_devcore_patch_proposer_generates_endpoint_changes_without_applying():
+    plan = devcore_patch_planner.plan(
+        DevCorePatchPlannerRequest(goal="Crea POST /api/v1/tools en FastAPI con tests")
+    )
+
+    proposal = devcore_patch_proposer.propose(
+        DevCorePatchProposeRequest(
+            patch_plan_id=plan.patch_plan_id,
+            goal=plan.goal,
+            files=plan.files,
+        )
+    )
+
+    assert proposal.applies_changes is False
+    assert len(proposal.proposed_changes) == 2
+    assert any(change.path.endswith("tools.py") for change in proposal.proposed_changes)
+    assert '@router.post("/api/v1/tools")' in proposal.diff_preview
+    assert any("pytest" in test for test in proposal.suggested_tests)
 
 
 def test_devcore_patch_apply_gate_requires_confirmation(tmp_path, monkeypatch):
@@ -482,6 +504,35 @@ def test_devcore_patch_apply_gate_blocks_workspace_escape(tmp_path, monkeypatch)
     assert response.status == "blocked"
     assert response.applies_changes is False
     assert any(issue.code == "patch_workspace_escape_blocked" for issue in response.validation_issues)
+
+
+def test_devcore_patch_apply_gate_blocks_changes_outside_plan(tmp_path, monkeypatch):
+    monkeypatch.setattr(devcore_patch_apply_gate, "workspace_root", tmp_path.resolve())
+
+    response = devcore_patch_apply_gate.apply(
+        DevCorePatchApplyRequest(
+            patch_plan_id="plan-test",
+            goal="Modifica codigo backend",
+            files=[
+                DevCorePatchPlanFile(
+                    path="backend/tests/planned.py",
+                    change_type="modify",
+                    rationale="planned",
+                )
+            ],
+            proposed_changes=[
+                DevCorePatchChange(
+                    path="backend/tests/unplanned.py",
+                    change_type="modify",
+                    content="print('no')\n",
+                )
+            ],
+            confirmation_phrase=CONFIRM_PATCH_PHRASE,
+        )
+    )
+
+    assert response.status == "blocked"
+    assert any(issue.code == "patch_change_not_in_plan" for issue in response.validation_issues)
 
 
 @pytest.mark.asyncio
