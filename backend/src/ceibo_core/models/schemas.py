@@ -947,3 +947,37 @@ class SingularityIndex(BaseModel):
 class SingularitySnapshotRecord(SingularityIndex):
     snapshot_id: str
     created_at: datetime
+
+
+class CognitionSignal(BaseModel):
+    name: str
+    active: bool
+    detail: str
+
+
+class CognitionLayer(BaseModel):
+    layer_id: str
+    name: str
+    purpose: str
+    score: int = Field(ge=0, le=100)
+    status: str
+    signals: list[CognitionSignal] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+
+
+class CognitionProcessStep(BaseModel):
+    order: int
+    name: str
+    description: str
+    required_layer: str
+
+
+class CognitionState(BaseModel):
+    cognition_id: str = Field(default_factory=lambda: str(uuid4()))
+    overall_score: int = Field(ge=0, le=100)
+    maturity_level: str
+    summary: str
+    layers: list[CognitionLayer]
+    bottlenecks: list[str] = Field(default_factory=list)
+    recommended_process: list[CognitionProcessStep] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

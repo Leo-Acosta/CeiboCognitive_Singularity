@@ -50,6 +50,7 @@ from ceibo_core.models.schemas import (
 )
 from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
+from ceibo_core.services.cognition import cognition_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import EvaluationHarnessService, evaluation_harness_service
 from ceibo_core.services.devcore import devcore_service
@@ -1040,6 +1041,18 @@ async def test_singularity_index_returns_weighted_progress():
     assert sum(category.weight for category in report.categories) == 100
     assert any(category.category == "Entrenamiento propio" for category in report.categories)
     assert report.next_steps
+
+
+@pytest.mark.asyncio
+async def test_cognition_state_reports_layered_process():
+    state = await cognition_service.state()
+    layer_ids = {layer.layer_id for layer in state.layers}
+
+    assert 0 <= state.overall_score <= 100
+    assert {"perception", "memory", "reasoning", "safety", "action", "learning", "self_model"}.issubset(layer_ids)
+    assert state.bottlenecks
+    assert [step.order for step in state.recommended_process] == list(range(1, len(state.recommended_process) + 1))
+    assert state.recommended_process[0].required_layer == "perception"
 
 
 @pytest.mark.asyncio

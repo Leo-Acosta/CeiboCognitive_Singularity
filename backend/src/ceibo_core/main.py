@@ -7,6 +7,7 @@ import structlog
 
 from ceibo_core.api.routes.agents import router as agents_router
 from ceibo_core.api.routes.chat import router as chat_router
+from ceibo_core.api.routes.cognition import router as cognition_router
 from ceibo_core.api.routes.devcore import router as devcore_router
 from ceibo_core.api.routes.engine import router as engine_router
 from ceibo_core.api.routes.health import router as health_router
@@ -58,6 +59,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(agents_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(cognition_router, prefix="/api/v1")
 app.include_router(devcore_router, prefix="/api/v1")
 app.include_router(engine_router, prefix="/api/v1")
 app.include_router(memory_router, prefix="/api/v1")

@@ -6,6 +6,8 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 
 ## Capacidades v1
 
+- Cognition v1: estado por capas para medir percepcion, memoria, razonamiento,
+  seguridad, accion, aprendizaje y modelo de si mismo.
 - Inspeccion de repo.
 - Planificacion de cambios.
 - Recomendacion de agente.
@@ -37,6 +39,7 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 
 ## Endpoints
 
+- `GET /api/v1/cognition/state`
 - `GET /api/v1/devcore/status`
 - `GET /api/v1/devcore/capabilities`
 - `GET /api/v1/devcore/safety/policy`
@@ -51,6 +54,20 @@ propone rutas de cambio, recomienda agente y sugiere verificaciones.
 - `POST /api/v1/devcore/parse`
 - `POST /api/v1/devcore/capabilities/promote`
 - `POST /api/v1/devcore/plan`
+
+Ejemplo de cognition state:
+
+```json
+{
+  "overall_score": 58,
+  "maturity_level": "forming_cognition",
+  "layers": []
+}
+```
+
+La respuesta real incluye capas cognitivas, senales, cuellos de botella y un
+proceso recomendado: percibir, recordar, interpretar, asegurar, actuar,
+verificar, aprender y repriorizar.
 
 Ejemplo de parse:
 

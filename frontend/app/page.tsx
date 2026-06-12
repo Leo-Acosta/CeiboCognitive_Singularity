@@ -38,6 +38,37 @@ type CoreStatus = {
   engine_mode: string;
 };
 
+type CognitionSignal = {
+  name: string;
+  active: boolean;
+  detail: string;
+};
+
+type CognitionLayer = {
+  layer_id: string;
+  name: string;
+  purpose: string;
+  score: number;
+  status: string;
+  signals: CognitionSignal[];
+  next_actions: string[];
+};
+
+type CognitionState = {
+  cognition_id: string;
+  overall_score: number;
+  maturity_level: string;
+  summary: string;
+  layers: CognitionLayer[];
+  bottlenecks: string[];
+  recommended_process: {
+    order: number;
+    name: string;
+    description: string;
+    required_layer: string;
+  }[];
+};
+
 type DevCoreParameter = {
   name: string;
   value: string;
@@ -298,6 +329,7 @@ export default function Home() {
   ]);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState<CoreStatus | null>(null);
+  const [cognitionState, setCognitionState] = useState<CognitionState | null>(null);
   const [parseResult, setParseResult] = useState<DevCoreParseResponse | null>(null);
   const [templatePreview, setTemplatePreview] = useState<DevCoreTemplateRenderResponse | null>(null);
   const [executionPreview, setExecutionPreview] = useState<DevCoreExecutionResponse | null>(null);
@@ -341,9 +373,22 @@ export default function Home() {
         throw new Error(`API responded ${response.status}`);
       }
       setStatus((await response.json()) as CoreStatus);
+      void refreshCognition();
       setConnection("ready");
     } catch {
       setConnection("offline");
+    }
+  }
+
+  async function refreshCognition() {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/cognition/state`);
+      if (!response.ok) {
+        throw new Error(`Cognition responded ${response.status}`);
+      }
+      setCognitionState((await response.json()) as CognitionState);
+    } catch {
+      setCognitionState(null);
     }
   }
 
@@ -869,6 +914,85 @@ export default function Home() {
           </div>
 
           <aside className="min-h-0 overflow-y-auto rounded-lg border border-white bg-white/70 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur">
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Cognition v1
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Capas de inteligencia
+                  </h2>
+                </div>
+                <Sparkles className="h-5 w-5 text-sky-700" />
+              </div>
+
+              {cognitionState ? (
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-slate-800">
+                        {cognitionState.maturity_level}
+                      </p>
+                      <span className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
+                        {cognitionState.overall_score}/100
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-slate-500">
+                      {cognitionState.summary}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {cognitionState.layers.map((layer) => (
+                      <div
+                        key={layer.layer_id}
+                        className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                      >
+                        <p className="truncate text-xs font-semibold text-slate-700">
+                          {layer.name}
+                        </p>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                          <div
+                            className="h-full rounded-full bg-sky-700"
+                            style={{ width: `${layer.score}%` }}
+                          />
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">{layer.score}/100</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {cognitionState.bottlenecks.length ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
+                        Cuellos de botella
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-amber-800">
+                        {cognitionState.bottlenecks.join(" | ")}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Proceso
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">
+                      {cognitionState.recommended_process
+                        .slice(0, 4)
+                        .map((step) => step.name)
+                        .join(" -> ")}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                  La capa cognitiva aparece cuando la API local responde.
+                </p>
+              )}
+            </div>
+
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
