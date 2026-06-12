@@ -8,7 +8,10 @@ import {
   ChevronRight,
   Code2,
   Copy,
+  KeyRound,
   Loader2,
+  Mic,
+  MicOff,
   RotateCcw,
   Send,
   ShieldAlert,
@@ -17,6 +20,39 @@ import {
   Terminal,
   UserRound,
 } from "lucide-react";
+
+type SpeechRecognitionResultLike = {
+  readonly isFinal: boolean;
+  readonly [index: number]: { transcript: string };
+};
+
+type SpeechRecognitionEventLike = {
+  readonly results: {
+    readonly length: number;
+    readonly [index: number]: SpeechRecognitionResultLike;
+  };
+};
+
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
 
 type ChatMessage = {
   id: string;
@@ -36,6 +72,25 @@ type CoreStatus = {
   llm_provider: string;
   engine_model_id: string;
   engine_mode: string;
+};
+
+type VoiceStatusResponse = {
+  enabled: boolean;
+  authorized_users: string[];
+  mode: string;
+  authorization_phrase_hint: string;
+  safety_notes: string[];
+};
+
+type VoiceCommandResponse = {
+  accepted: boolean;
+  authorized: boolean;
+  user_id: string;
+  command: string | null;
+  reason: string;
+  requires_authorization: boolean;
+  authorization_token: string | null;
+  safety_notes: string[];
 };
 
 type CognitionSignal = {
@@ -349,6 +404,14 @@ export default function Home() {
   const [isVerifyingPatch, setIsVerifyingPatch] = useState(false);
   const [isConfirmingExecution, setIsConfirmingExecution] = useState(false);
   const [connection, setConnection] = useState<"ready" | "offline">("ready");
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatusResponse | null>(null);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceAuthorized, setVoiceAuthorized] = useState(false);
+  const [voiceToken, setVoiceToken] = useState<string | null>(null);
+  const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [voiceMessage, setVoiceMessage] = useState("Deci: CEIBO autoriza mi voz.");
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const statusLabel = useMemo(() => {
@@ -360,6 +423,8 @@ export default function Home() {
 
   useEffect(() => {
     void refreshStatus();
+    setVoiceSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
+    void refreshVoiceStatus();
   }, []);
 
   useEffect(() => {
@@ -389,6 +454,22 @@ export default function Home() {
       setCognitionState((await response.json()) as CognitionState);
     } catch {
       setCognitionState(null);
+    }
+  }
+
+  async function refreshVoiceStatus() {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/voice/status`);
+      if (!response.ok) {
+        throw new Error(`Voice responded ${response.status}`);
+      }
+      const data = (await response.json()) as VoiceStatusResponse;
+      setVoiceStatus(data);
+      if (!voiceAuthorized) {
+        setVoiceMessage(data.authorization_phrase_hint);
+      }
+    } catch {
+      setVoiceStatus(null);
     }
   }
 
@@ -677,6 +758,85 @@ export default function Home() {
     setWorkbenchHistory((current) => [{ id: newId(), ...item }, ...current].slice(0, 5));
   }
 
+  function startVoiceListening() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition || voiceListening) {
+      setVoiceMessage("Este navegador no tiene reconocimiento de voz disponible.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "es-AR";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event) => {
+      const transcripts: string[] = [];
+      for (let index = 0; index < event.results.length; index += 1) {
+        transcripts.push(event.results[index][0].transcript);
+      }
+      const transcript = transcripts.join(" ").trim();
+      setVoiceTranscript(transcript);
+      void handleVoiceCommand(transcript);
+    };
+    recognition.onerror = () => {
+      setVoiceListening(false);
+      setVoiceMessage("No pude escuchar bien. Revisa permisos de microfono y proba otra vez.");
+    };
+    recognition.onend = () => {
+      setVoiceListening(false);
+    };
+    recognitionRef.current = recognition;
+    setVoiceListening(true);
+    setVoiceMessage(voiceAuthorized ? "Te escucho. Dicta una orden." : "Deci: CEIBO autoriza mi voz.");
+    recognition.start();
+  }
+
+  function stopVoiceListening() {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setVoiceListening(false);
+  }
+
+  async function handleVoiceCommand(transcript: string) {
+    if (!transcript.trim()) {
+      setVoiceMessage("No detecte texto en la voz.");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/voice/command`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript,
+          user_id: "local-owner",
+          session_id: sessionId,
+          authorization_token: voiceToken,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Voice command responded ${response.status}`);
+      }
+      const data = (await response.json()) as VoiceCommandResponse;
+      setVoiceAuthorized(data.authorized);
+      setVoiceToken(data.authorization_token ?? voiceToken);
+      setVoiceMessage(data.reason);
+      addHistory({
+        kind: "parse",
+        title: data.accepted ? "voice command" : "voice auth",
+        detail: data.command ?? data.reason,
+      });
+
+      if (data.accepted && data.command) {
+        await sendMessage(data.command);
+      }
+    } catch {
+      setVoiceMessage("No pude validar la voz con la API local.");
+      setConnection("offline");
+    }
+  }
+
   async function sendMessage(nextMessage?: string) {
     const content = (nextMessage ?? input).trim();
     if (!content || isSending) {
@@ -784,6 +944,30 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
+            <span
+              className={`hidden items-center gap-2 rounded-full border px-3 py-2 text-sm sm:inline-flex ${
+                voiceAuthorized
+                  ? "border-emerald-200 bg-white text-emerald-700"
+                  : "border-slate-200 bg-white text-slate-600"
+              }`}
+            >
+              <KeyRound className="h-4 w-4" />
+              {voiceAuthorized ? "voz autorizada" : "voz bloqueada"}
+            </span>
+            <button
+              type="button"
+              onClick={voiceListening ? stopVoiceListening : startVoiceListening}
+              disabled={!voiceSupported || isSending}
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                voiceListening
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:text-sky-900"
+              }`}
+              aria-label={voiceListening ? "Detener escucha" : "Escuchar por voz"}
+              title={voiceListening ? "Detener escucha" : "Escuchar por voz"}
+            >
+              {voiceListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </button>
             <span
               className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm ${
                 connection === "ready"
@@ -914,6 +1098,69 @@ export default function Home() {
           </div>
 
           <aside className="min-h-0 overflow-y-auto rounded-lg border border-white bg-white/70 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur">
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Voice Control v1
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Ordenes por voz
+                  </h2>
+                </div>
+                {voiceAuthorized ? (
+                  <Mic className="h-5 w-5 text-emerald-700" />
+                ) : (
+                  <MicOff className="h-5 w-5 text-slate-500" />
+                )}
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    voiceAuthorized
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-slate-200 bg-slate-50 text-slate-600"
+                  }`}
+                >
+                  <p className="font-semibold">
+                    {voiceAuthorized ? "Dueno autorizado" : "Esperando autorizacion"}
+                  </p>
+                  <p className="mt-1 text-xs leading-5">{voiceMessage}</p>
+                </div>
+
+                {voiceTranscript ? (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Ultima escucha
+                    </p>
+                    <p className="mt-1 text-sm leading-5 text-slate-700">{voiceTranscript}</p>
+                  </div>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={voiceListening ? stopVoiceListening : startVoiceListening}
+                  disabled={!voiceSupported || isSending}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {voiceListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  {voiceListening ? "Detener escucha" : "Hablar con CEIBO"}
+                </button>
+
+                {!voiceSupported ? (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                    Tu navegador actual no expone Web Speech API. Proba desde Chrome o Edge.
+                  </p>
+                ) : null}
+
+                <p className="text-xs leading-5 text-slate-500">
+                  {voiceStatus?.safety_notes[0] ??
+                    "Voice v1 autoriza por frase hablada; las ordenes siguen pasando por seguridad."}
+                </p>
+              </div>
+            </div>
+
             <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>

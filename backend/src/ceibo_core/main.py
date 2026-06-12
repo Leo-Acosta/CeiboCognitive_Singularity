@@ -14,6 +14,7 @@ from ceibo_core.api.routes.health import router as health_router
 from ceibo_core.api.routes.memory import router as memory_router
 from ceibo_core.api.routes.status import router as status_router
 from ceibo_core.api.routes.tasks import router as tasks_router
+from ceibo_core.api.routes.voice import router as voice_router
 from ceibo_core.api.routes.ws import router as ws_router
 from ceibo_core.core.config import settings
 from ceibo_core.core.logging import configure_logging
@@ -65,6 +66,7 @@ app.include_router(engine_router, prefix="/api/v1")
 app.include_router(memory_router, prefix="/api/v1")
 app.include_router(status_router, prefix="/api/v1")
 app.include_router(tasks_router, prefix="/api/v1")
+app.include_router(voice_router, prefix="/api/v1")
 app.include_router(ws_router, prefix="/api/v1")
 
 Instrumentator().instrument(app).expose(app)

@@ -115,6 +115,48 @@ class ChatResponse(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class VoiceAuthorizationRequest(BaseModel):
+    transcript: str = Field(min_length=1)
+    user_id: str = "local-owner"
+
+
+class VoiceAuthorizationResponse(BaseModel):
+    authorized: bool
+    user_id: str
+    authorization_token: str | None = None
+    mode: str = "spoken_owner_phrase"
+    message: str
+    safety_notes: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class VoiceCommandRequest(BaseModel):
+    transcript: str = Field(min_length=1)
+    user_id: str = "local-owner"
+    session_id: str | None = None
+    authorization_token: str | None = None
+
+
+class VoiceCommandResponse(BaseModel):
+    accepted: bool
+    authorized: bool
+    user_id: str
+    command: str | None = None
+    reason: str
+    requires_authorization: bool = False
+    authorization_token: str | None = None
+    safety_notes: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class VoiceStatusResponse(BaseModel):
+    enabled: bool = True
+    authorized_users: list[str] = Field(default_factory=list)
+    mode: str = "spoken_owner_phrase"
+    authorization_phrase_hint: str
+    safety_notes: list[str] = Field(default_factory=list)
+
+
 class TaskRequest(BaseModel):
     goal: str = Field(min_length=1)
     requested_agent: AgentRole | None = None

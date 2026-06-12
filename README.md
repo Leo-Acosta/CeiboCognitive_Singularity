@@ -111,6 +111,9 @@ API:
 - `POST /api/v1/engine/training/qlora/start`
 - `GET /api/v1/engine/training/qlora/jobs`
 - `POST /api/v1/chat`
+- `GET /api/v1/voice/status`
+- `POST /api/v1/voice/authorize`
+- `POST /api/v1/voice/command`
 - `GET /api/v1/memory/health`
 - `POST /api/v1/memory/remember`
 - `GET /api/v1/memory/search`

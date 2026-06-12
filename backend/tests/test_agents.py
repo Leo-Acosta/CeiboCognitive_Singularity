@@ -47,6 +47,8 @@ from ceibo_core.models.schemas import (
     TrainingFeedbackRequest,
     TrainingPlanRequest,
     UserRole,
+    VoiceAuthorizationRequest,
+    VoiceCommandRequest,
 )
 from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
@@ -74,6 +76,7 @@ from ceibo_core.services.tasks import task_store
 from ceibo_core.services.teacher_agent import TeacherAgentService
 from ceibo_core.services.training_data import TrainingDataService
 from ceibo_core.services.training_runner import TrainingRunnerService
+from ceibo_core.services.voice_control import VoiceControlService
 
 
 @pytest.mark.asyncio
@@ -1331,3 +1334,55 @@ Paso dos"
     assert review.score == 70
     assert review.issues == ["Falta detalle"]
     assert "Paso uno" in review.ideal_response
+
+
+def test_voice_control_authorizes_owner_phrase_and_accepts_command():
+    service = VoiceControlService()
+
+    authorization = service.authorize(
+        VoiceAuthorizationRequest(transcript="CEIBO autoriza mi voz", user_id="owner")
+    )
+    assert authorization.authorized is True
+    assert authorization.authorization_token
+
+    command = service.command(
+        VoiceCommandRequest(
+            transcript="Agrega un endpoint FastAPI con tests",
+            user_id="owner",
+            authorization_token=authorization.authorization_token,
+        )
+    )
+
+    assert command.accepted is True
+    assert command.authorized is True
+    assert command.command == "agrega un endpoint fastapi con tests"
+
+
+def test_voice_control_blocks_command_without_authorization():
+    service = VoiceControlService()
+
+    command = service.command(
+        VoiceCommandRequest(transcript="Borra archivos del sistema", user_id="owner")
+    )
+
+    assert command.accepted is False
+    assert command.requires_authorization is True
+    assert command.command is None
+
+
+def test_voice_control_preserves_execution_intent_after_wake_word():
+    service = VoiceControlService()
+    authorization = service.authorize(
+        VoiceAuthorizationRequest(transcript="CEIBO autoriza mi voz", user_id="owner")
+    )
+
+    command = service.command(
+        VoiceCommandRequest(
+            transcript="CEIBO ejecuta python -m pytest backend/tests",
+            user_id="owner",
+            authorization_token=authorization.authorization_token,
+        )
+    )
+
+    assert command.accepted is True
+    assert command.command == "ejecuta python -m pytest backend/tests"
