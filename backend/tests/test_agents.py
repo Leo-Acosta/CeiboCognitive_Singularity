@@ -1051,9 +1051,16 @@ async def test_singularity_index_returns_weighted_progress():
 async def test_cognition_state_reports_layered_process():
     state = await cognition_service.state()
     layer_ids = {layer.layer_id for layer in state.layers}
+    signals_by_layer = {
+        layer.layer_id: {signal.name for signal in layer.signals}
+        for layer in state.layers
+    }
 
     assert 0 <= state.overall_score <= 100
     assert {"perception", "memory", "reasoning", "safety", "action", "learning", "self_model"}.issubset(layer_ids)
+    assert "Voice Control" in signals_by_layer["perception"]
+    assert "Voice safety" in signals_by_layer["safety"]
+    assert "Owner voice commands" in signals_by_layer["action"]
     assert state.bottlenecks
     assert [step.order for step in state.recommended_process] == list(range(1, len(state.recommended_process) + 1))
     assert state.recommended_process[0].required_layer == "perception"

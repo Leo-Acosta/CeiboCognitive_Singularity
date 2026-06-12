@@ -14,6 +14,7 @@ from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.singularity_index import singularity_index_service
 from ceibo_core.services.training_data import training_data_service
+from ceibo_core.services.voice_control import voice_control_service
 
 
 class CognitionService:
@@ -26,17 +27,20 @@ class CognitionService:
         latest_eval = evaluation_harness_service.latest()
         eval_scores = latest_eval.category_scores if latest_eval else {}
         devcore_metrics = devcore_service.metrics()
+        voice_status = voice_control_service.status()
+        voice_ready = voice_status.enabled and bool(voice_status.authorization_phrase_hint)
 
         layers = [
             self._layer(
                 "perception",
                 "Percepcion",
                 "Leer estado del sistema, repo, herramientas y senales externas disponibles.",
-                min(100, 45 + len(agent_registry) * 4),
+                min(100, 45 + len(agent_registry) * 4 + (8 if voice_ready else 0)),
                 [
                     self._signal("Agentes registrados", len(agent_registry) >= 8, f"{len(agent_registry)} agentes"),
                     self._signal("Status API", True, "core/status activo"),
                     self._signal("Workbench", True, "chat y panel DevCore disponibles"),
+                    self._signal("Voice Control", voice_ready, voice_status.mode),
                 ],
                 ["Agregar inventario vivo de archivos y endpoints", "Mostrar estado Docker y tests recientes"],
             ),
@@ -68,11 +72,12 @@ class CognitionService:
                 "safety",
                 "Seguridad",
                 "Clasificar riesgo, bloquear dano y exigir confirmaciones.",
-                max(60, eval_scores.get("security", 0)),
+                max(60, eval_scores.get("security", 0)) + (5 if voice_ready else 0),
                 [
                     self._signal("RBAC/local policy", settings.rbac_enforced or settings.local_dev_admin_enabled, "activo"),
                     self._signal("DevCore safety", True, "lab_policy + confirmation gates"),
                     self._signal("Sandbox", True, "allowlist y workspace guard"),
+                    self._signal("Voice safety", voice_ready, f"{voice_status.blocked_commands} bloqueos"),
                 ],
                 ["Persistir snapshots de rollback", "Agregar revision de secrets antes de apply"],
             ),
@@ -80,11 +85,12 @@ class CognitionService:
                 "action",
                 "Accion",
                 "Convertir intencion en cambios verificables con plan, gate, tests y rollback.",
-                min(100, 35 + devcore_metrics["active"] * 8),
+                min(100, 35 + devcore_metrics["active"] * 8 + (5 if voice_ready else 0)),
                 [
                     self._signal("Patch planner/proposer", True, "plan -> propose -> preflight"),
                     self._signal("Apply gate", True, "APPLY_PATCH + snapshots"),
                     self._signal("Rollback", True, "ROLLBACK_PATCH"),
+                    self._signal("Owner voice commands", voice_ready, f"{len(voice_status.active_sessions)} sesiones activas"),
                 ],
                 ["Agregar diff visual antes/despues", "Ejecutar tests automaticamente tras apply confirmado"],
             ),
