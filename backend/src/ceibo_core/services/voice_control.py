@@ -11,6 +11,8 @@ from ceibo_core.models.schemas import (
     VoiceAuthorizationResponse,
     VoiceCommandRequest,
     VoiceCommandResponse,
+    VoiceRevokeRequest,
+    VoiceRevokeResponse,
     VoiceStatusResponse,
 )
 from ceibo_core.services.devcore import devcore_service
@@ -21,11 +23,16 @@ class VoiceControlService:
         self._authorization_phrase = "ceibo autoriza mi voz"
         self._active_tokens: dict[str, tuple[str, datetime]] = {}
         self._token_ttl = timedelta(hours=8)
+        self._blocked_commands = 0
 
     def status(self) -> VoiceStatusResponse:
         self._purge_expired()
         return VoiceStatusResponse(
             authorized_users=sorted(self._active_tokens),
+            active_sessions={
+                user_id: expires_at for user_id, (_, expires_at) in self._active_tokens.items()
+            },
+            blocked_commands=self._blocked_commands,
             authorization_phrase_hint="Deci: CEIBO autoriza mi voz",
             safety_notes=[
                 "Voice v1 usa una frase hablada de dueno; no es biometria de voz.",
@@ -49,11 +56,13 @@ class VoiceControlService:
 
         raw_token = token_urlsafe(24)
         token_hash = self._hash_token(raw_token)
-        self._active_tokens[request.user_id] = (token_hash, datetime.now(UTC) + self._token_ttl)
+        expires_at = datetime.now(UTC) + self._token_ttl
+        self._active_tokens[request.user_id] = (token_hash, expires_at)
         return VoiceAuthorizationResponse(
             authorized=True,
             user_id=request.user_id,
             authorization_token=raw_token,
+            expires_at=expires_at,
             message="Voz autorizada para esta sesion local.",
             safety_notes=[
                 "Autorizacion local temporal activa.",
@@ -108,9 +117,10 @@ class VoiceControlService:
                     "voice_policy=route_through_devcore",
                 ],
             )
-        )
+            )
 
         if parsed.policy_action == "block":
+            self._blocked_commands += 1
             return self._response_from_parse(
                 parsed,
                 accepted=False,
@@ -164,8 +174,32 @@ class VoiceControlService:
             requires_confirmation=parsed.requires_confirmation,
             double_confirmation_required=parsed.double_confirmation_required,
             authorization_token=authorization_token,
+            expires_at=self._expires_at(user_id, authorization_token),
             safety_notes=safety_notes,
         )
+
+    def revoke(self, request: VoiceRevokeRequest) -> VoiceRevokeResponse:
+        revoked = False
+        if request.authorization_token and self._token_is_valid(
+            request.user_id, request.authorization_token
+        ):
+            revoked = self._active_tokens.pop(request.user_id, None) is not None
+        elif not request.authorization_token:
+            revoked = self._active_tokens.pop(request.user_id, None) is not None
+
+        return VoiceRevokeResponse(
+            revoked=revoked,
+            user_id=request.user_id,
+            message="Voz bloqueada para esta sesion." if revoked else "No habia una sesion de voz activa.",
+        )
+
+    def _expires_at(self, user_id: str, token: str | None) -> datetime | None:
+        if not self._token_is_valid(user_id, token):
+            return None
+        record = self._active_tokens.get(user_id)
+        if not record:
+            return None
+        return record[1]
 
     def _token_is_valid(self, user_id: str, token: str | None) -> bool:
         if not token:

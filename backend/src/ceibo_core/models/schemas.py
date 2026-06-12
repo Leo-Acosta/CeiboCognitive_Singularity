@@ -124,6 +124,7 @@ class VoiceAuthorizationResponse(BaseModel):
     authorized: bool
     user_id: str
     authorization_token: str | None = None
+    expires_at: datetime | None = None
     mode: str = "spoken_owner_phrase"
     message: str
     safety_notes: list[str] = Field(default_factory=list)
@@ -151,13 +152,28 @@ class VoiceCommandResponse(BaseModel):
     requires_confirmation: bool = False
     double_confirmation_required: bool = False
     authorization_token: str | None = None
+    expires_at: datetime | None = None
     safety_notes: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class VoiceRevokeRequest(BaseModel):
+    user_id: str = "local-owner"
+    authorization_token: str | None = None
+
+
+class VoiceRevokeResponse(BaseModel):
+    revoked: bool
+    user_id: str
+    message: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class VoiceStatusResponse(BaseModel):
     enabled: bool = True
     authorized_users: list[str] = Field(default_factory=list)
+    active_sessions: dict[str, datetime] = Field(default_factory=dict)
+    blocked_commands: int = 0
     mode: str = "spoken_owner_phrase"
     authorization_phrase_hint: str
     safety_notes: list[str] = Field(default_factory=list)

@@ -49,6 +49,7 @@ from ceibo_core.models.schemas import (
     UserRole,
     VoiceAuthorizationRequest,
     VoiceCommandRequest,
+    VoiceRevokeRequest,
 )
 from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
@@ -1407,3 +1408,32 @@ def test_voice_control_blocks_authorized_dangerous_command():
     assert command.risk_level == "blocked"
     assert command.policy_action == "block"
     assert command.cyber_category == "credential_theft"
+
+
+def test_voice_control_reports_session_and_revokes_token():
+    service = VoiceControlService()
+    authorization = service.authorize(
+        VoiceAuthorizationRequest(transcript="CEIBO autoriza mi voz", user_id="owner")
+    )
+
+    status = service.status()
+    assert "owner" in status.authorized_users
+    assert status.active_sessions["owner"] == authorization.expires_at
+
+    revoked = service.revoke(
+        VoiceRevokeRequest(
+            user_id="owner",
+            authorization_token=authorization.authorization_token,
+        )
+    )
+    blocked = service.command(
+        VoiceCommandRequest(
+            transcript="Agrega tests",
+            user_id="owner",
+            authorization_token=authorization.authorization_token,
+        )
+    )
+
+    assert revoked.revoked is True
+    assert blocked.accepted is False
+    assert blocked.requires_authorization is True

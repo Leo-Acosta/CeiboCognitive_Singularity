@@ -77,6 +77,8 @@ type CoreStatus = {
 type VoiceStatusResponse = {
   enabled: boolean;
   authorized_users: string[];
+  active_sessions: Record<string, string>;
+  blocked_commands: number;
   mode: string;
   authorization_phrase_hint: string;
   safety_notes: string[];
@@ -96,7 +98,14 @@ type VoiceCommandResponse = {
   requires_confirmation: boolean;
   double_confirmation_required: boolean;
   authorization_token: string | null;
+  expires_at: string | null;
   safety_notes: string[];
+};
+
+type VoiceRevokeResponse = {
+  revoked: boolean;
+  user_id: string;
+  message: string;
 };
 
 type CognitionSignal = {
@@ -415,6 +424,7 @@ export default function Home() {
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceAuthorized, setVoiceAuthorized] = useState(false);
   const [voiceToken, setVoiceToken] = useState<string | null>(null);
+  const [voiceExpiresAt, setVoiceExpiresAt] = useState<string | null>(null);
   const [voiceTranscript, setVoiceTranscript] = useState("");
   const [voiceMessage, setVoiceMessage] = useState("Deci: CEIBO autoriza mi voz.");
   const [lastVoiceDecision, setLastVoiceDecision] = useState<VoiceCommandResponse | null>(null);
@@ -472,6 +482,11 @@ export default function Home() {
       }
       const data = (await response.json()) as VoiceStatusResponse;
       setVoiceStatus(data);
+      const activeOwnerSession = data.active_sessions["local-owner"];
+      if (activeOwnerSession && voiceToken) {
+        setVoiceAuthorized(true);
+        setVoiceExpiresAt(activeOwnerSession);
+      }
       if (!voiceAuthorized) {
         setVoiceMessage(data.authorization_phrase_hint);
       }
@@ -828,6 +843,7 @@ export default function Home() {
       const data = (await response.json()) as VoiceCommandResponse;
       setVoiceAuthorized(data.authorized);
       setVoiceToken(data.authorization_token ?? voiceToken);
+      setVoiceExpiresAt(data.expires_at ?? voiceExpiresAt);
       setVoiceMessage(data.reason);
       setLastVoiceDecision(data);
       addHistory({
@@ -842,6 +858,31 @@ export default function Home() {
     } catch {
       setVoiceMessage("No pude validar la voz con la API local.");
       setConnection("offline");
+    }
+  }
+
+  async function revokeVoiceSession() {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/voice/revoke`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: "local-owner",
+          authorization_token: voiceToken,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Voice revoke responded ${response.status}`);
+      }
+      const data = (await response.json()) as VoiceRevokeResponse;
+      setVoiceAuthorized(false);
+      setVoiceToken(null);
+      setVoiceExpiresAt(null);
+      setVoiceMessage(data.message);
+      setLastVoiceDecision(null);
+      void refreshVoiceStatus();
+    } catch {
+      setVoiceMessage("No pude bloquear la voz desde la API local.");
     }
   }
 
@@ -1174,6 +1215,29 @@ export default function Home() {
                   </div>
                 ) : null}
 
+                {(voiceExpiresAt || voiceStatus) ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Expira
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-slate-700">
+                        {voiceExpiresAt
+                          ? new Date(voiceExpiresAt).toLocaleTimeString()
+                          : "sin sesion"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Bloqueos
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-slate-700">
+                        {voiceStatus?.blocked_commands ?? 0}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
                 <button
                   type="button"
                   onClick={voiceListening ? stopVoiceListening : startVoiceListening}
@@ -1183,6 +1247,17 @@ export default function Home() {
                   {voiceListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                   {voiceListening ? "Detener escucha" : "Hablar con CEIBO"}
                 </button>
+
+                {voiceAuthorized ? (
+                  <button
+                    type="button"
+                    onClick={() => void revokeVoiceSession()}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                  >
+                    <KeyRound className="h-4 w-4" />
+                    Bloquear voz
+                  </button>
+                ) : null}
 
                 {!voiceSupported ? (
                   <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">

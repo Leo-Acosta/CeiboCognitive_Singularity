@@ -10,6 +10,8 @@ from ceibo_core.models.schemas import (
     VoiceAuthorizationResponse,
     VoiceCommandRequest,
     VoiceCommandResponse,
+    VoiceRevokeRequest,
+    VoiceRevokeResponse,
     VoiceStatusResponse,
 )
 from ceibo_core.services.audit import audit_trail_service
@@ -66,6 +68,28 @@ async def voice_command(
             "authorized": response.authorized,
             "requires_authorization": response.requires_authorization,
             "command": response.command,
+        },
+    )
+    return response
+
+
+@router.post("/revoke", response_model=VoiceRevokeResponse)
+async def revoke_voice(
+    request: VoiceRevokeRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(get_auth_context),
+) -> VoiceRevokeResponse:
+    response = voice_control_service.revoke(request)
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="voice.revoke",
+        actor="ceibo_voice",
+        action=SecurityAction.READ_STATUS,
+        allowed=response.revoked,
+        payload={
+            "voice_user_id": request.user_id,
+            "revoked": response.revoked,
         },
     )
     return response

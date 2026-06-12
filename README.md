@@ -114,6 +114,7 @@ API:
 - `GET /api/v1/voice/status`
 - `POST /api/v1/voice/authorize`
 - `POST /api/v1/voice/command`
+- `POST /api/v1/voice/revoke`
 - `GET /api/v1/memory/health`
 - `POST /api/v1/memory/remember`
 - `GET /api/v1/memory/search`
