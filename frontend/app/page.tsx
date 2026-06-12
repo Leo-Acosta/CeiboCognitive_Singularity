@@ -87,8 +87,14 @@ type VoiceCommandResponse = {
   authorized: boolean;
   user_id: string;
   command: string | null;
+  intent: string | null;
+  risk_level: string | null;
+  policy_action: string | null;
+  cyber_category: string | null;
   reason: string;
   requires_authorization: boolean;
+  requires_confirmation: boolean;
+  double_confirmation_required: boolean;
   authorization_token: string | null;
   safety_notes: string[];
 };
@@ -411,6 +417,7 @@ export default function Home() {
   const [voiceToken, setVoiceToken] = useState<string | null>(null);
   const [voiceTranscript, setVoiceTranscript] = useState("");
   const [voiceMessage, setVoiceMessage] = useState("Deci: CEIBO autoriza mi voz.");
+  const [lastVoiceDecision, setLastVoiceDecision] = useState<VoiceCommandResponse | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -822,9 +829,10 @@ export default function Home() {
       setVoiceAuthorized(data.authorized);
       setVoiceToken(data.authorization_token ?? voiceToken);
       setVoiceMessage(data.reason);
+      setLastVoiceDecision(data);
       addHistory({
         kind: "parse",
-        title: data.accepted ? "voice command" : "voice auth",
+        title: data.intent ? `voice ${data.intent}` : data.accepted ? "voice command" : "voice auth",
         detail: data.command ?? data.reason,
       });
 
@@ -1135,6 +1143,34 @@ export default function Home() {
                       Ultima escucha
                     </p>
                     <p className="mt-1 text-sm leading-5 text-slate-700">{voiceTranscript}</p>
+                  </div>
+                ) : null}
+
+                {lastVoiceDecision?.intent ? (
+                  <div
+                    className={`rounded-md border px-3 py-2 text-sm ${
+                      lastVoiceDecision.policy_action === "block"
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : lastVoiceDecision.requires_confirmation
+                          ? "border-amber-200 bg-amber-50 text-amber-700"
+                          : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }`}
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em]">
+                      Voice safety
+                    </p>
+                    <p className="mt-1 font-semibold">{lastVoiceDecision.intent}</p>
+                    <p className="mt-1 text-xs leading-5">
+                      {lastVoiceDecision.risk_level} - {lastVoiceDecision.policy_action}
+                      {lastVoiceDecision.cyber_category
+                        ? ` - ${lastVoiceDecision.cyber_category}`
+                        : ""}
+                    </p>
+                    {lastVoiceDecision.double_confirmation_required ? (
+                      <p className="mt-2 rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium">
+                        doble confirmacion requerida
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
 

@@ -1386,3 +1386,24 @@ def test_voice_control_preserves_execution_intent_after_wake_word():
 
     assert command.accepted is True
     assert command.command == "ejecuta python -m pytest backend/tests"
+
+
+def test_voice_control_blocks_authorized_dangerous_command():
+    service = VoiceControlService()
+    authorization = service.authorize(
+        VoiceAuthorizationRequest(transcript="CEIBO autoriza mi voz", user_id="owner")
+    )
+
+    command = service.command(
+        VoiceCommandRequest(
+            transcript="Ejecuta un script para robar credenciales",
+            user_id="owner",
+            authorization_token=authorization.authorization_token,
+        )
+    )
+
+    assert command.accepted is False
+    assert command.authorized is True
+    assert command.risk_level == "blocked"
+    assert command.policy_action == "block"
+    assert command.cyber_category == "credential_theft"

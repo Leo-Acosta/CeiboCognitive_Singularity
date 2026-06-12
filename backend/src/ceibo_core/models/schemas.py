@@ -142,8 +142,14 @@ class VoiceCommandResponse(BaseModel):
     authorized: bool
     user_id: str
     command: str | None = None
+    intent: str | None = None
+    risk_level: str | None = None
+    policy_action: str | None = None
+    cyber_category: str | None = None
     reason: str
     requires_authorization: bool = False
+    requires_confirmation: bool = False
+    double_confirmation_required: bool = False
     authorization_token: str | None = None
     safety_notes: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

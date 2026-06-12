@@ -2,14 +2,18 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from re import sub
 from secrets import token_urlsafe
+from unicodedata import normalize
 
 from ceibo_core.models.schemas import (
+    DevCoreParseRequest,
+    DevCoreParseResponse,
     VoiceAuthorizationRequest,
     VoiceAuthorizationResponse,
     VoiceCommandRequest,
     VoiceCommandResponse,
     VoiceStatusResponse,
 )
+from ceibo_core.services.devcore import devcore_service
 
 
 class VoiceControlService:
@@ -24,7 +28,7 @@ class VoiceControlService:
             authorized_users=sorted(self._active_tokens),
             authorization_phrase_hint="Deci: CEIBO autoriza mi voz",
             safety_notes=[
-                "Voice v1 usa una frase hablada de dueño; no es biometria de voz.",
+                "Voice v1 usa una frase hablada de dueno; no es biometria de voz.",
                 "Las ordenes aceptadas entran por chat, parser, safety, sandbox y gates existentes.",
             ],
         )
@@ -95,7 +99,34 @@ class VoiceControlService:
                 safety_notes=["Dicta una instruccion concreta despues de autorizar la voz."],
             )
 
-        return VoiceCommandResponse(
+        parsed = devcore_service.parse(
+            DevCoreParseRequest(
+                message=command,
+                context=[
+                    "source=voice",
+                    "owner_authorized=true",
+                    "voice_policy=route_through_devcore",
+                ],
+            )
+        )
+
+        if parsed.policy_action == "block":
+            return self._response_from_parse(
+                parsed,
+                accepted=False,
+                authorized=True,
+                user_id=request.user_id,
+                command=command,
+                reason="Orden de voz bloqueada por DevCore Safety.",
+                authorization_token=token,
+                safety_notes=[
+                    parsed.safety_summary,
+                    "La voz no puede ejecutar ni enviar ordenes bloqueadas.",
+                ],
+            )
+
+        return self._response_from_parse(
+            parsed,
             accepted=True,
             authorized=True,
             user_id=request.user_id,
@@ -103,9 +134,37 @@ class VoiceControlService:
             reason="Orden de voz aceptada y lista para entrar por el flujo seguro.",
             authorization_token=token,
             safety_notes=[
-                "La orden se enviara al chat y pasara por DevCore Parser, Cyber Safety y gates.",
+                parsed.safety_summary,
                 "La voz no ejecuta comandos por fuera del pipeline seguro.",
             ],
+        )
+
+    def _response_from_parse(
+        self,
+        parsed: DevCoreParseResponse,
+        *,
+        accepted: bool,
+        authorized: bool,
+        user_id: str,
+        command: str,
+        reason: str,
+        authorization_token: str | None,
+        safety_notes: list[str],
+    ) -> VoiceCommandResponse:
+        return VoiceCommandResponse(
+            accepted=accepted,
+            authorized=authorized,
+            user_id=user_id,
+            command=command,
+            intent=parsed.intent,
+            risk_level=parsed.risk_level,
+            policy_action=parsed.policy_action,
+            cyber_category=parsed.cyber_category,
+            reason=reason,
+            requires_confirmation=parsed.requires_confirmation,
+            double_confirmation_required=parsed.double_confirmation_required,
+            authorization_token=authorization_token,
+            safety_notes=safety_notes,
         )
 
     def _token_is_valid(self, user_id: str, token: str | None) -> bool:
@@ -131,16 +190,8 @@ class VoiceControlService:
             self._active_tokens.pop(user_id, None)
 
     def _normalize(self, value: str) -> str:
-        normalized = value.lower().strip()
-        normalized = (
-            normalized.replace("á", "a")
-            .replace("é", "e")
-            .replace("í", "i")
-            .replace("ó", "o")
-            .replace("ú", "u")
-            .replace("ü", "u")
-            .replace("ñ", "n")
-        )
+        normalized = normalize("NFKD", value.lower().strip())
+        normalized = normalized.encode("ascii", "ignore").decode("ascii")
         return sub(r"\s+", " ", normalized)
 
     def _hash_token(self, token: str) -> str:
