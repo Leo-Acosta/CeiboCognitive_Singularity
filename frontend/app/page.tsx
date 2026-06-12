@@ -66,6 +66,28 @@ type ChatResponse = {
   agent: string;
 };
 
+type LearningRating = "good" | "bad" | "corrected";
+
+type LastExchange = {
+  instruction: string;
+  assistantResponse: string;
+  intent: string | null;
+  riskLevel: string | null;
+  policyAction: string | null;
+};
+
+type LearningEventResponse = {
+  saved: boolean;
+  summary: string;
+  next_actions: string[];
+  example: {
+    example_id: string;
+    rating: LearningRating | null;
+    tags: string[];
+    source: string;
+  };
+};
+
 type CoreStatus = {
   environment: string;
   agents_online: number;
@@ -275,7 +297,7 @@ type DevCorePatchVerifyResponse = {
 
 type WorkbenchHistoryItem = {
   id: string;
-  kind: "parse" | "template" | "sandbox" | "patch";
+  kind: "parse" | "template" | "sandbox" | "patch" | "learning";
   title: string;
   detail: string;
 };
@@ -409,7 +431,11 @@ export default function Home() {
   const [patchRollbackPreview, setPatchRollbackPreview] = useState<DevCorePatchRollbackResponse | null>(null);
   const [patchVerifyPreview, setPatchVerifyPreview] = useState<DevCorePatchVerifyResponse | null>(null);
   const [workbenchHistory, setWorkbenchHistory] = useState<WorkbenchHistoryItem[]>([]);
+  const [lastExchange, setLastExchange] = useState<LastExchange | null>(null);
+  const [learningCorrection, setLearningCorrection] = useState("");
+  const [learningMessage, setLearningMessage] = useState("Todavia no guardaste feedback.");
   const [isSending, setIsSending] = useState(false);
+  const [isSavingLearning, setIsSavingLearning] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
@@ -886,6 +912,56 @@ export default function Home() {
     }
   }
 
+  async function saveLearningEvent(rating: LearningRating) {
+    if (!lastExchange || isSavingLearning) {
+      return;
+    }
+    const correction = learningCorrection.trim();
+    if (rating === "corrected" && !correction) {
+      setLearningMessage("Escribi una correccion ideal antes de guardar.");
+      return;
+    }
+
+    setIsSavingLearning(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/learning-event`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instruction: lastExchange.instruction,
+          assistant_response: lastExchange.assistantResponse,
+          rating,
+          corrected_response: correction || null,
+          source: "workbench",
+          tags: ["chat", "human-feedback"],
+          metadata: {
+            surface: "devcore-workbench",
+            intent: lastExchange.intent,
+            risk_level: lastExchange.riskLevel,
+            policy_action: lastExchange.policyAction,
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Learning event responded ${response.status}`);
+      }
+      const data = (await response.json()) as LearningEventResponse;
+      setLearningMessage(data.summary);
+      setLearningCorrection("");
+      addHistory({
+        kind: "learning",
+        title: `feedback ${data.example.rating ?? rating}`,
+        detail: data.summary,
+      });
+      void refreshCognition();
+    } catch {
+      setLearningMessage("No pude guardar el feedback en el dataset local.");
+      setConnection("offline");
+    } finally {
+      setIsSavingLearning(false);
+    }
+  }
+
   async function sendMessage(nextMessage?: string) {
     const content = (nextMessage ?? input).trim();
     if (!content || isSending) {
@@ -931,6 +1007,14 @@ export default function Home() {
         ...current,
         { id: newId(), role: "assistant", content: data.response },
       ]);
+      setLastExchange({
+        instruction: content,
+        assistantResponse: data.response,
+        intent: parsed.intent,
+        riskLevel: parsed.risk_level,
+        policyAction: parsed.policy_action,
+      });
+      setLearningMessage("Respuesta lista para feedback humano.");
       setConnection("ready");
       void refreshStatus();
     } catch {
@@ -965,6 +1049,9 @@ export default function Home() {
       setPatchRollbackPreview(null);
       setPatchVerifyPreview(null);
       setWorkbenchHistory([]);
+      setLastExchange(null);
+      setLearningCorrection("");
+      setLearningMessage("Todavia no guardaste feedback.");
       setMessages([
       {
         id: newId(),
@@ -1347,6 +1434,76 @@ export default function Home() {
               ) : (
                 <p className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
                   La capa cognitiva aparece cuando la API local responde.
+                </p>
+              )}
+            </div>
+
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Sprint 31
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Learning Loop v1
+                  </h2>
+                </div>
+                <CheckCircle2 className="h-5 w-5 text-emerald-700" />
+              </div>
+
+              {lastExchange ? (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Ultima respuesta
+                    </p>
+                    <p className="mt-1 line-clamp-3 text-sm leading-6 text-slate-700">
+                      {lastExchange.assistantResponse}
+                    </p>
+                  </div>
+
+                  <textarea
+                    value={learningCorrection}
+                    onChange={(event) => setLearningCorrection(event.target.value)}
+                    placeholder="Correccion ideal opcional..."
+                    className="min-h-24 w-full resize-none rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-white"
+                  />
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void saveLearningEvent("good")}
+                      disabled={isSavingLearning}
+                      className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Buena
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void saveLearningEvent("bad")}
+                      disabled={isSavingLearning}
+                      className="rounded-md border border-red-200 bg-red-50 px-2 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Mala
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void saveLearningEvent("corrected")}
+                      disabled={isSavingLearning}
+                      className="rounded-md border border-sky-200 bg-sky-50 px-2 py-2 text-xs font-semibold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Corregir
+                    </button>
+                  </div>
+
+                  <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
+                    {isSavingLearning ? "Guardando feedback..." : learningMessage}
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                  Cuando CEIBO responda, vas a poder marcar la salida como buena, mala o
+                  corregida para alimentar el dataset local.
                 </p>
               )}
             </div>

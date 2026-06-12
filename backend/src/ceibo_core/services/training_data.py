@@ -8,6 +8,8 @@ from pydantic import ValidationError
 
 from ceibo_core.core.config import settings
 from ceibo_core.models.schemas import (
+    LearningEventRequest,
+    LearningEventResponse,
     TrainingDatasetStats,
     TrainingExample,
     TrainingExampleRequest,
@@ -58,6 +60,36 @@ class TrainingDataService:
         self._write_example(example)
         return example
 
+    async def append_learning_event(self, request: LearningEventRequest) -> LearningEventResponse:
+        tags = list(dict.fromkeys([*request.tags, "learning_loop", "workbench"]))
+        feedback = TrainingFeedbackRequest(
+            instruction=request.instruction,
+            original_response=request.assistant_response,
+            corrected_response=request.corrected_response,
+            rating=request.rating,
+            tags=tags,
+            source=request.source,
+            metadata={
+                **request.metadata,
+                "learning_loop": True,
+                "reviewed_by": "human",
+            },
+        )
+        example = await self.append_feedback(feedback)
+        summary = self._learning_summary(example)
+        next_actions = [
+            "Usar este ejemplo en curacion de dataset.",
+            "Revisar ejemplos corregidos antes de entrenamiento.",
+        ]
+        if example.rating and example.rating.value == "bad":
+            next_actions.insert(0, "No promover esta respuesta; usarla como contraejemplo.")
+        return LearningEventResponse(
+            saved=True,
+            example=example,
+            summary=summary,
+            next_actions=next_actions,
+        )
+
     async def list_examples(self, limit: int = 20) -> list[TrainingExample]:
         examples = self._read_examples()
         return examples[-limit:]
@@ -106,6 +138,11 @@ class TrainingDataService:
             except (JSONDecodeError, ValidationError):
                 continue
         return examples
+
+    def _learning_summary(self, example: TrainingExample) -> str:
+        rating = example.rating.value if example.rating else "unrated"
+        correction = " con correccion humana" if example.metadata.get("has_correction") else ""
+        return f"Learning Loop guardo ejemplo {rating}{correction} desde {example.source}."
 
 
 training_data_service = TrainingDataService()

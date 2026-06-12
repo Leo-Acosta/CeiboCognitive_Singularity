@@ -12,6 +12,8 @@ from ceibo_core.models.schemas import (
     EngineGenerateResponse,
     EngineStatus,
     EvaluationSuiteReport,
+    LearningEventRequest,
+    LearningEventResponse,
     DatasetCurationReport,
     DatasetCurationRequest,
     ModelCandidate,
@@ -230,6 +232,11 @@ async def append_training_example(request: TrainingExampleRequest) -> TrainingEx
 @router.post("/training/feedback", response_model=TrainingExample)
 async def append_training_feedback(request: TrainingFeedbackRequest) -> TrainingExample:
     return await training_data_service.append_feedback(request)
+
+
+@router.post("/training/learning-event", response_model=LearningEventResponse)
+async def append_learning_event(request: LearningEventRequest) -> LearningEventResponse:
+    return await training_data_service.append_learning_event(request)
 
 
 @router.get("/training/stats", response_model=TrainingDatasetStats)

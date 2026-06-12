@@ -27,6 +27,7 @@ from ceibo_core.models.schemas import (
     JobKind,
     JobStatus,
     KnowledgeItemRequest,
+    LearningEventRequest,
     DevCorePlanRequest,
     DevCoreParseRequest,
     DevCoreTemplateRenderRequest,
@@ -905,6 +906,37 @@ async def test_training_data_service_collects_feedback_and_stats(monkeypatch):
         assert stats.tag_counts["training"] == 1
         assert stats.rating_counts["corrected"] == 1
         assert stats.source_counts["dashboard"] == 1
+    finally:
+        dataset_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_learning_loop_saves_human_feedback_event(monkeypatch):
+    service = TrainingDataService()
+    dataset_path = Path(".tmp-tests") / f"ceibo_learning_{uuid4()}.jsonl"
+    monkeypatch.setattr(service, "dataset_path", lambda: dataset_path)
+
+    try:
+        event = await service.append_learning_event(
+            LearningEventRequest(
+                instruction="Agrega endpoint FastAPI con tests",
+                assistant_response="Puedo preparar un plan general.",
+                corrected_response="Crear ruta, schema, test y documentar el endpoint.",
+                rating=TrainingFeedbackRating.CORRECTED,
+                tags=["chat"],
+                metadata={"intent": "create_endpoint", "risk_level": "low"},
+            )
+        )
+        stats = await service.stats()
+
+        assert event.saved is True
+        assert event.example.response.startswith("Crear ruta")
+        assert event.example.rating == TrainingFeedbackRating.CORRECTED
+        assert "learning_loop" in event.example.tags
+        assert "workbench" in event.example.tags
+        assert event.example.metadata["reviewed_by"] == "human"
+        assert stats.tag_counts["learning_loop"] == 1
+        assert stats.rating_counts["corrected"] == 1
     finally:
         dataset_path.unlink(missing_ok=True)
 

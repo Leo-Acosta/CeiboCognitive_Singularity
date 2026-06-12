@@ -101,6 +101,7 @@ API:
 - `GET /api/v1/engine/training/examples`
 - `POST /api/v1/engine/training/examples`
 - `POST /api/v1/engine/training/feedback`
+- `POST /api/v1/engine/training/learning-event`
 - `GET /api/v1/engine/training/stats`
 - `POST /api/v1/engine/training/curate/preview`
 - `POST /api/v1/engine/training/curate/export`

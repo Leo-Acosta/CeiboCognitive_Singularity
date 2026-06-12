@@ -646,6 +646,23 @@ class TrainingFeedbackRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class LearningEventRequest(BaseModel):
+    instruction: str = Field(min_length=1)
+    assistant_response: str = Field(min_length=1)
+    rating: TrainingFeedbackRating = TrainingFeedbackRating.GOOD
+    corrected_response: str | None = None
+    source: str = "workbench"
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class LearningEventResponse(BaseModel):
+    saved: bool
+    example: TrainingExample
+    summary: str
+    next_actions: list[str] = Field(default_factory=list)
+
+
 class TrainingDatasetStats(BaseModel):
     dataset_path: str
     total_examples: int
