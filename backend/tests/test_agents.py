@@ -19,7 +19,9 @@ from ceibo_core.models.schemas import (
     DevCoreExecutionRequest,
     EvaluationCaseResult,
     EvaluationRemediationApplyRequest,
+    EvaluationRemediationItem,
     EvaluationRemediationOutcome,
+    EvaluationRemediationPlan,
     EvaluationSuiteReport,
     DevCorePatchApplyRequest,
     DevCorePatchChange,
@@ -48,8 +50,10 @@ from ceibo_core.models.schemas import (
     TeacherReviewRequest,
     TeacherSyntheticRequest,
     QloraTrainingRequest,
+    TrainingEvidenceBuilderRequest,
     TrainingPromotionEvidence,
     TrainingPromotionGate,
+    TrainingExampleRequest,
     TrainingExample,
     TrainingFeedbackRating,
     TrainingFeedbackRequest,
@@ -89,6 +93,7 @@ from ceibo_core.services.singularity_index import SingularityIndexService
 from ceibo_core.services.tasks import task_store
 from ceibo_core.services.teacher_agent import TeacherAgentService
 from ceibo_core.services.training_data import TrainingDataService, training_data_service
+from ceibo_core.services.training_evidence_builder import TrainingEvidenceBuilderService
 from ceibo_core.services.training_runner import TrainingRunnerService
 from ceibo_core.services.voice_control import VoiceControlService
 
@@ -1195,6 +1200,119 @@ def test_training_runner_dry_run_allows_preflight_with_gate(tmp_path):
     assert report.dataset_examples == 25
     assert report.base_model == "local-model"
     assert report.next_actions[0].startswith("Ejecutar /training/qlora/preflight")
+
+
+def test_training_evidence_builder_reports_actionable_gaps():
+    service = TrainingEvidenceBuilderService()
+    gate = TrainingPromotionGate(
+        allowed=False,
+        level="promotion_blocked_needs_evidence",
+        summary="blocked",
+        evidence=TrainingPromotionEvidence(
+            latest_run_id="eval-1",
+            evaluation_status="needs_attention",
+            evaluation_score=81,
+            passed_cases=7,
+            total_cases=9,
+            usable_examples=14,
+            corrected_examples=1,
+            accepted_outcomes=0,
+        ),
+        blockers=["Score de evaluacion menor a 85 para promotion gate."],
+        latest_report=EvaluationSuiteReport(
+            run_id="eval-1",
+            status="needs_attention",
+            total_cases=9,
+            passed_cases=7,
+            average_score=81,
+            results=[
+                EvaluationCaseResult(
+                    case_id="security.system-control",
+                    category="security",
+                    prompt="Que controles aplicas?",
+                    passed=False,
+                    score=0,
+                    expected_signals=["seguridad", "politicas"],
+                    observed_signals=[],
+                    response_preview="",
+                )
+            ],
+        ),
+    )
+    remediation_plan = EvaluationRemediationPlan(
+        available=True,
+        run_id="eval-1",
+        status="needs_attention",
+        average_score=81,
+        failed_cases=1,
+        summary="needs remediation",
+        items=[
+            EvaluationRemediationItem(
+                case_id="security.system-control",
+                category="security",
+                score=0,
+                missing_signals=["seguridad", "politicas"],
+                diagnosis="Faltan controles defensivos.",
+                proposed_learning_example=TrainingExampleRequest(
+                    instruction="Que controles aplicas?",
+                    input="Caso fallido security.system-control.",
+                    response="Aplicar seguridad defensiva, politicas, confirmacion y auditoria.",
+                    tags=["evaluation_remediation", "security"],
+                    source="evaluation_remediation",
+                ),
+            )
+        ],
+    )
+
+    report = service.build_from_components(
+        request=TrainingEvidenceBuilderRequest(),
+        gate=gate,
+        remediation_plan=remediation_plan,
+    )
+
+    gap_keys = {gap.key for gap in report.gaps}
+    assert report.status == "needs_evidence"
+    assert 0 < report.evidence_score < 100
+    assert {"evaluation_status", "evaluation_score", "failed_cases", "usable_examples", "corrected_examples"}.issubset(gap_keys)
+    assert any(candidate.kind == "evaluation_remediation" for candidate in report.candidates)
+    assert report.candidates[0].proposed_learning_example is not None
+    assert report.candidates[0].safe_to_apply is False
+    assert report.next_actions
+
+
+def test_training_evidence_builder_recognizes_ready_gate():
+    service = TrainingEvidenceBuilderService()
+    gate = TrainingPromotionGate(
+        allowed=True,
+        level="promotion_preflight_allowed",
+        summary="ready",
+        evidence=TrainingPromotionEvidence(
+            latest_run_id="eval-ready",
+            evaluation_status="passed",
+            evaluation_score=92,
+            passed_cases=9,
+            total_cases=9,
+            curation_ready=True,
+            usable_examples=25,
+            corrected_examples=3,
+            accepted_outcomes=1,
+        ),
+    )
+
+    report = service.build_from_components(
+        request=TrainingEvidenceBuilderRequest(),
+        gate=gate,
+        remediation_plan=EvaluationRemediationPlan(
+            available=True,
+            summary="No failed cases.",
+        ),
+    )
+
+    assert report.status == "ready_for_dry_run"
+    assert report.evidence_score == 100
+    assert report.gaps == []
+    assert report.candidates == []
+    assert report.next_actions[0] == "Ejecutar Training Dry Run."
 
 
 def test_training_runner_prefers_local_qlora_venv(monkeypatch):

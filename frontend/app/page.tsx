@@ -306,6 +306,42 @@ type TrainingDryRunReport = {
   created_at: string;
 };
 
+type TrainingEvidenceGap = {
+  key: string;
+  label: string;
+  current: number | string | null;
+  target: number | string | null;
+  missing: number;
+  severity: string;
+  blocking: boolean;
+  description: string;
+  recommended_actions: string[];
+};
+
+type TrainingEvidenceCandidate = {
+  candidate_id: string;
+  kind: string;
+  title: string;
+  rationale: string;
+  expected_impact: string[];
+  source_case_id: string | null;
+  safe_to_apply: boolean;
+  requires_human_review: boolean;
+  next_actions: string[];
+};
+
+type TrainingEvidenceBuilderReport = {
+  builder_id: string;
+  status: string;
+  evidence_score: number;
+  summary: string;
+  gate: TrainingPromotionGate;
+  gaps: TrainingEvidenceGap[];
+  candidates: TrainingEvidenceCandidate[];
+  next_actions: string[];
+  created_at: string;
+};
+
 type CoreStatus = {
   environment: string;
   agents_online: number;
@@ -662,6 +698,7 @@ export default function Home() {
   const [remediationOutcomeReview, setRemediationOutcomeReview] = useState<EvaluationRemediationOutcomeReview | null>(null);
   const [trainingPromotionGate, setTrainingPromotionGate] = useState<TrainingPromotionGate | null>(null);
   const [trainingDryRun, setTrainingDryRun] = useState<TrainingDryRunReport | null>(null);
+  const [trainingEvidence, setTrainingEvidence] = useState<TrainingEvidenceBuilderReport | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
@@ -672,6 +709,7 @@ export default function Home() {
   const [isApplyingRemediation, setIsApplyingRemediation] = useState(false);
   const [isReviewingPromotionGate, setIsReviewingPromotionGate] = useState(false);
   const [isRunningTrainingDryRun, setIsRunningTrainingDryRun] = useState(false);
+  const [isBuildingTrainingEvidence, setIsBuildingTrainingEvidence] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
@@ -881,6 +919,39 @@ export default function Home() {
       setTrainingPromotionGate(null);
     } finally {
       setIsReviewingPromotionGate(false);
+    }
+  }
+
+  async function buildTrainingEvidence() {
+    setIsBuildingTrainingEvidence(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/evidence/build`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_usable_examples: 25,
+          target_corrected_examples: 3,
+          target_evaluation_score: 85,
+          target_accepted_outcomes: 1,
+          max_candidates: 6,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Training evidence builder responded ${response.status}`);
+      }
+      const data = (await response.json()) as TrainingEvidenceBuilderReport;
+      setTrainingEvidence(data);
+      setTrainingPromotionGate(data.gate);
+      addHistory({
+        kind: "learning",
+        title: "evidence builder",
+        detail: `${data.status} - score ${data.evidence_score} - ${data.gaps.length} gaps`,
+      });
+    } catch {
+      setTrainingEvidence(null);
+      setConnection("offline");
+    } finally {
+      setIsBuildingTrainingEvidence(false);
     }
   }
 
@@ -1916,6 +1987,66 @@ export default function Home() {
                   )}
                   Revisar promotion gate
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => void buildTrainingEvidence()}
+                  disabled={isBuildingTrainingEvidence}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 transition hover:border-sky-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isBuildingTrainingEvidence ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4" />
+                  )}
+                  Construir evidencia
+                </button>
+
+                {trainingEvidence ? (
+                  <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-xs leading-5 text-sky-900">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold">{trainingEvidence.status}</p>
+                      <span className="rounded-full bg-white px-2 py-0.5 font-medium">
+                        {trainingEvidence.evidence_score}/100
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sky-800">{trainingEvidence.summary}</p>
+
+                    {trainingEvidence.gaps.length ? (
+                      <div className="mt-3 space-y-2">
+                        {trainingEvidence.gaps.slice(0, 3).map((gap) => (
+                          <div
+                            key={gap.key}
+                            className="rounded-md border border-white/70 bg-white px-3 py-2"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-medium text-slate-900">{gap.label}</p>
+                              <span className="text-slate-500">
+                                faltan {gap.missing}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-slate-600">{gap.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">
+                        Sin gaps bloqueantes: listo para revisar dry run.
+                      </p>
+                    )}
+
+                    {trainingEvidence.candidates[0] ? (
+                      <div className="mt-3 rounded-md border border-white/70 bg-white px-3 py-2">
+                        <p className="font-medium text-slate-900">
+                          {trainingEvidence.candidates[0].title}
+                        </p>
+                        <p className="mt-1 text-slate-600">
+                          {trainingEvidence.candidates[0].rationale}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <button
                   type="button"

@@ -1027,6 +1027,55 @@ class TrainingDryRunReport(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class TrainingEvidenceBuilderRequest(BaseModel):
+    target_usable_examples: int = Field(default=25, ge=1)
+    target_corrected_examples: int = Field(default=3, ge=0)
+    target_evaluation_score: int = Field(default=85, ge=0, le=100)
+    target_accepted_outcomes: int = Field(default=1, ge=0)
+    include_candidate_examples: bool = True
+    max_candidates: int = Field(default=6, ge=1, le=20)
+
+
+class TrainingEvidenceGap(BaseModel):
+    key: str
+    label: str
+    current: int | str | None = None
+    target: int | str | None = None
+    missing: int = 0
+    severity: str
+    blocking: bool = True
+    description: str
+    recommended_actions: list[str] = Field(default_factory=list)
+
+
+class TrainingEvidenceCandidate(BaseModel):
+    candidate_id: str
+    kind: str
+    title: str
+    rationale: str
+    expected_impact: list[str] = Field(default_factory=list)
+    source_case_id: str | None = None
+    proposed_learning_example: TrainingExampleRequest | None = None
+    safe_to_apply: bool = False
+    requires_human_review: bool = True
+    next_actions: list[str] = Field(default_factory=list)
+
+
+class TrainingEvidenceBuilderReport(BaseModel):
+    builder_id: str
+    status: str
+    evidence_score: int = Field(ge=0, le=100)
+    summary: str
+    gate: TrainingPromotionGate
+    gaps: list[TrainingEvidenceGap] = Field(default_factory=list)
+    candidates: list[TrainingEvidenceCandidate] = Field(default_factory=list)
+    remediation_plan: EvaluationRemediationPlan | None = None
+    curation_review: LearningCurationReview | None = None
+    outcome_review: EvaluationRemediationOutcomeReview | None = None
+    next_actions: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class HardwareProfile(BaseModel):
     gpu_vram_gb: int = Field(default=0, ge=0)
     system_ram_gb: int = Field(default=16, ge=1)

@@ -38,6 +38,8 @@ from ceibo_core.models.schemas import (
     TeacherSyntheticResponse,
     TrainingDatasetStats,
     TrainingDryRunReport,
+    TrainingEvidenceBuilderReport,
+    TrainingEvidenceBuilderRequest,
     TrainingExample,
     TrainingExampleRequest,
     TrainingFeedbackRating,
@@ -54,6 +56,7 @@ from ceibo_core.services.model_catalog import model_catalog_service
 from ceibo_core.services.model_registry import model_registry_service
 from ceibo_core.services.teacher_agent import teacher_agent_service
 from ceibo_core.services.training_data import training_data_service
+from ceibo_core.services.training_evidence_builder import training_evidence_builder_service
 from ceibo_core.services.training_runner import training_runner_service
 
 router = APIRouter(prefix="/engine", tags=["engine"])
@@ -305,6 +308,18 @@ async def append_learning_event(request: LearningEventRequest) -> LearningEventR
 async def training_promotion_gate() -> TrainingPromotionGate:
     try:
         return await evaluation_harness_service.training_promotion_gate()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/training/evidence/build", response_model=TrainingEvidenceBuilderReport)
+async def build_training_evidence(
+    request: TrainingEvidenceBuilderRequest | None = None,
+) -> TrainingEvidenceBuilderReport:
+    try:
+        return await training_evidence_builder_service.build(
+            request or TrainingEvidenceBuilderRequest()
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

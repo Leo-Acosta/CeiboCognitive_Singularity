@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Enterprise-grade multi-agent AI assistant core."
 requires-python = ">=3.12"
 dependencies = [
-  "fastapi>=0.111.0",
+  "fastapi>=0.111.0,<0.137.0",
   "uvicorn[standard]>=0.30.0",
   "pydantic>=2.7.0",
   "pydantic-settings>=2.2.1",
