@@ -11,6 +11,7 @@ from ceibo_core.models.schemas import (
 )
 from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.autobiographical_memory import autobiographical_memory_service
+from ceibo_core.services.cognitive_reflection import cognitive_reflection_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.singularity_index import singularity_index_service
@@ -22,6 +23,7 @@ class CognitionService:
     async def state(self) -> CognitionState:
         memory_status = await memory_service.status()
         autobiographical_state = await autobiographical_memory_service.state(limit=4)
+        reflection_state = await cognitive_reflection_service.state(limit=4)
         knowledge_status = await knowledge_service.status(None)
         training_stats = await training_data_service.stats()
         singularity = await singularity_index_service.calculate()
@@ -72,8 +74,13 @@ class CognitionService:
                     self._signal("Engine local-first", engine_status.provider == "ceibo_local", engine_status.model_id),
                     self._signal("Modo cognitivo", True, engine_status.mode),
                     self._signal("Eval reasoning", bool(latest_eval), self._eval_detail(eval_scores, "reasoning")),
+                    self._signal(
+                        "Cognitive Reflection",
+                        reflection_state.total_reflections > 0,
+                        f"{reflection_state.total_reflections} reflexiones",
+                    ),
                 ],
-                ["Ejecutar evaluation harness regularmente", "Agregar reflexion posterior a cada patch"],
+                ["Ejecutar evaluation harness regularmente", "Revisar patrones de reflexion posterior"],
             ),
             self._layer(
                 "safety",
@@ -121,6 +128,7 @@ class CognitionService:
                 [
                     self._signal("Singularity Index", True, f"{singularity.index}/100 {singularity.maturity_level}"),
                     self._signal("Snapshots", True, "historial disponible"),
+                    self._signal("Reflection Loop", reflection_state.total_reflections > 0, reflection_state.status),
                     self._signal("Next steps", bool(singularity.next_steps), "; ".join(singularity.next_steps[:2])),
                 ],
                 singularity.next_steps[:3],

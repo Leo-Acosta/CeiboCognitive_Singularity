@@ -7,6 +7,8 @@ from ceibo_core.db.session import get_db
 from ceibo_core.models.schemas import (
     AutobiographicalMemoryRequest,
     AutobiographicalMemoryState,
+    CognitiveReflectionRequest,
+    CognitiveReflectionState,
     DatasetVersionRecord,
     DatasetVersionRequest,
     AuthContext,
@@ -55,6 +57,7 @@ from ceibo_core.models.schemas import (
 )
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.autobiographical_memory import autobiographical_memory_service
+from ceibo_core.services.cognitive_reflection import cognitive_reflection_service
 from ceibo_core.services.dataset_curator import dataset_curator_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.human_feedback_studio import human_feedback_studio_service
@@ -155,11 +158,24 @@ async def apply_evaluation_remediation(
 @router.post("/generate", response_model=EngineGenerateResponse)
 async def generate(request: EngineGenerateRequest) -> EngineGenerateResponse:
     autobiographical_context = await autobiographical_memory_service.context_for(request.message)
-    return await ceibo_engine.generate(
+    response = await ceibo_engine.generate(
         system_prompt=request.system_prompt,
         user_message=request.message,
         context=[*autobiographical_context, *request.context],
     )
+    await cognitive_reflection_service.reflect_after_response(
+        CognitiveReflectionRequest(
+            prompt=request.message,
+            response=response.response,
+            source="engine.generate",
+            user_id=request.user_id,
+            intents=response.intents,
+            used_context=response.used_context,
+            memory_context=autobiographical_context,
+            metadata={"model_id": response.model_id, "mode": response.mode},
+        )
+    )
+    return response
 
 
 @router.get("/memory/autobiographical", response_model=AutobiographicalMemoryState)
@@ -177,6 +193,11 @@ async def save_autobiographical_memory(
 @router.post("/memory/autobiographical/bootstrap", response_model=AutobiographicalMemoryState)
 async def bootstrap_autobiographical_memory() -> AutobiographicalMemoryState:
     return await autobiographical_memory_service.bootstrap()
+
+
+@router.get("/reflections/cognitive", response_model=CognitiveReflectionState)
+async def cognitive_reflection_state(limit: int = 8) -> CognitiveReflectionState:
+    return await cognitive_reflection_service.state(limit=limit)
 
 
 @router.get("/models", response_model=list[ModelCandidate])

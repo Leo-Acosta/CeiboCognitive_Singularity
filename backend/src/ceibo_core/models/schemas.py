@@ -635,6 +635,57 @@ class AutobiographicalMemoryState(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class CognitiveReflectionRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    response: str = Field(min_length=1)
+    source: str = "chat"
+    user_id: str = "local-user"
+    session_id: str | None = None
+    intents: list[str] = Field(default_factory=list)
+    used_context: bool = False
+    memory_context: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("prompt", "response", "source", "user_id", "session_id", mode="before")
+    @classmethod
+    def strip_reflection_text(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class CognitiveReflectionRecord(BaseModel):
+    reflection_id: str = Field(default_factory=lambda: f"reflection-{uuid4().hex[:12]}")
+    prompt: str
+    response_preview: str
+    source: str
+    user_id: str
+    session_id: str | None = None
+    score: int = Field(ge=0, le=100)
+    did_well: list[str] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
+    should_learn: list[str] = Field(default_factory=list)
+    recommended_memory: AutobiographicalMemoryRequest | None = None
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class CognitiveReflectionState(BaseModel):
+    status: str
+    summary: str
+    reflection_path: str
+    total_reflections: int
+    average_score: float = 0
+    latest_reflection: CognitiveReflectionRecord | None = None
+    recent_reflections: list[CognitiveReflectionRecord] = Field(default_factory=list)
+    recurring_missing: dict[str, int] = Field(default_factory=dict)
+    recurring_learning: dict[str, int] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class EngineGenerateRequest(BaseModel):
     message: str = Field(min_length=1)
     system_prompt: str = ""

@@ -143,6 +143,36 @@ type AutobiographicalMemoryState = {
   created_at: string;
 };
 
+type CognitiveReflectionRecord = {
+  reflection_id: string;
+  prompt: string;
+  response_preview: string;
+  source: string;
+  user_id: string;
+  session_id: string | null;
+  score: number;
+  did_well: string[];
+  missing: string[];
+  should_learn: string[];
+  tags: string[];
+  created_at: string;
+};
+
+type CognitiveReflectionState = {
+  status: string;
+  summary: string;
+  reflection_path: string;
+  total_reflections: number;
+  average_score: number;
+  latest_reflection: CognitiveReflectionRecord | null;
+  recent_reflections: CognitiveReflectionRecord[];
+  recurring_missing: Record<string, number>;
+  recurring_learning: Record<string, number>;
+  warnings: string[];
+  next_actions: string[];
+  created_at: string;
+};
+
 type TrainingDatasetStats = {
   dataset_path: string;
   total_examples: number;
@@ -742,6 +772,8 @@ export default function Home() {
   const [humanFeedbackStudio, setHumanFeedbackStudio] = useState<HumanFeedbackStudioReport | null>(null);
   const [autobiographicalMemory, setAutobiographicalMemory] =
     useState<AutobiographicalMemoryState | null>(null);
+  const [cognitiveReflection, setCognitiveReflection] =
+    useState<CognitiveReflectionState | null>(null);
   const [learningCuration, setLearningCuration] = useState<LearningCurationReview | null>(null);
   const [curationMessage, setCurationMessage] = useState("Sin revision de dataset todavia.");
   const [evaluationReport, setEvaluationReport] = useState<EvaluationSuiteReport | null>(null);
@@ -758,6 +790,7 @@ export default function Home() {
   const [isSavingLearning, setIsSavingLearning] = useState(false);
   const [isRefreshingFeedbackStudio, setIsRefreshingFeedbackStudio] = useState(false);
   const [isRefreshingAutobiographicalMemory, setIsRefreshingAutobiographicalMemory] = useState(false);
+  const [isRefreshingCognitiveReflection, setIsRefreshingCognitiveReflection] = useState(false);
   const [isReviewingCuration, setIsReviewingCuration] = useState(false);
   const [isExportingCuration, setIsExportingCuration] = useState(false);
   const [isRunningEvaluation, setIsRunningEvaluation] = useState(false);
@@ -800,6 +833,7 @@ export default function Home() {
     void refreshVoiceStatus();
     void refreshHumanFeedbackStudio();
     void refreshAutobiographicalMemory(true);
+    void refreshCognitiveReflection();
     void reviewLearningCuration();
     void refreshEvaluationGate();
     void refreshEvaluationRemediation();
@@ -895,6 +929,21 @@ export default function Home() {
       setAutobiographicalMemory(null);
     } finally {
       setIsRefreshingAutobiographicalMemory(false);
+    }
+  }
+
+  async function refreshCognitiveReflection() {
+    setIsRefreshingCognitiveReflection(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/reflections/cognitive`);
+      if (!response.ok) {
+        throw new Error(`Cognitive reflection responded ${response.status}`);
+      }
+      setCognitiveReflection((await response.json()) as CognitiveReflectionState);
+    } catch {
+      setCognitiveReflection(null);
+    } finally {
+      setIsRefreshingCognitiveReflection(false);
     }
   }
 
@@ -1657,6 +1706,7 @@ export default function Home() {
       setLearningMessage("Respuesta lista para feedback humano.");
       setConnection("ready");
       void refreshStatus();
+      void refreshCognitiveReflection();
     } catch {
       setConnection("offline");
       setMessages((current) => [
@@ -1996,6 +2046,92 @@ export default function Home() {
                   {voiceStatus?.safety_notes[0] ??
                     "Voice v1 autoriza por frase hablada; las ordenes siguen pasando por seguridad."}
                 </p>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Sprint 42
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Cognitive Reflection Loop
+                  </h2>
+                </div>
+                <Sparkles className="h-5 w-5 text-sky-700" />
+              </div>
+
+              {cognitiveReflection ? (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold">{cognitiveReflection.status}</p>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium">
+                        {cognitiveReflection.average_score}/100
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5">{cognitiveReflection.summary}</p>
+                  </div>
+
+                  {cognitiveReflection.latest_reflection ? (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Ultima reflexion
+                        </p>
+                        <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">
+                          {cognitiveReflection.latest_reflection.score}/100
+                        </span>
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-700">
+                        {cognitiveReflection.latest_reflection.prompt}
+                      </p>
+                      {cognitiveReflection.latest_reflection.did_well[0] ? (
+                        <p className="mt-2 text-xs leading-5 text-emerald-700">
+                          Bien: {cognitiveReflection.latest_reflection.did_well[0]}
+                        </p>
+                      ) : null}
+                      {cognitiveReflection.latest_reflection.missing[0] ? (
+                        <p className="mt-1 text-xs leading-5 text-amber-700">
+                          Falto: {cognitiveReflection.latest_reflection.missing[0]}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {Object.keys(cognitiveReflection.recurring_missing).length ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
+                        Patron a mejorar
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-amber-800">
+                        {Object.entries(cognitiveReflection.recurring_missing)[0][0]}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                  Despues de cada respuesta, CEIBO guarda internamente que hizo bien, que falto y
+                  que deberia aprender.
+                </p>
+              )}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void refreshCognitiveReflection()}
+                  disabled={isRefreshingCognitiveReflection}
+                  className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-sky-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isRefreshingCognitiveReflection ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                  Refrescar reflexion
+                </button>
               </div>
             </div>
 

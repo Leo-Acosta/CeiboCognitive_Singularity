@@ -19,5 +19,6 @@ build/
 /models/
 training/runs/
 training/evaluations/
+training/reflections/
 *.log
 .DS_Store

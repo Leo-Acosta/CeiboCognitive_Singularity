@@ -111,6 +111,7 @@ API:
 - `GET /api/v1/engine/memory/autobiographical`
 - `POST /api/v1/engine/memory/autobiographical`
 - `POST /api/v1/engine/memory/autobiographical/bootstrap`
+- `GET /api/v1/engine/reflections/cognitive`
 - `GET /api/v1/engine/training/promotion-gate`
 - `POST /api/v1/engine/training/evidence/build`
 - `GET /api/v1/engine/training/stats`

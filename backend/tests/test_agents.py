@@ -15,6 +15,7 @@ from ceibo_core.models.schemas import (
     AutobiographicalMemoryRequest,
     AuthContext,
     ChatRequest,
+    CognitiveReflectionRequest,
     DatasetVersionRequest,
     DatasetCurationRequest,
     DevCoreExecutionRequest,
@@ -69,6 +70,7 @@ from ceibo_core.models.schemas import (
 from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.autobiographical_memory import AutobiographicalMemoryService
+from ceibo_core.services.cognitive_reflection import CognitiveReflectionService
 from ceibo_core.services.cognition import cognition_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import (
@@ -1112,6 +1114,67 @@ async def test_autobiographical_memory_sanitizes_and_upserts():
         assert "sprint" in second.important_entries[0].tags
         assert "token=abc" not in memory_path.read_text(encoding="utf-8")
     finally:
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cognitive_reflection_records_missing_and_learning_signals():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_{uuid4()}.jsonl"
+    service = CognitiveReflectionService(reflection_path)
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt="Agrega un endpoint FastAPI para el robot y explica el riesgo",
+                response="Se puede agregar el endpoint.",
+                source="test",
+                intents=["devcore_modify"],
+                used_context=False,
+            )
+        )
+        state = await service.state()
+
+        assert record.score < 70
+        assert "No uso memoria o contexto previo." in record.missing
+        assert "No explicito verificacion o tests." in record.missing
+        assert any("Mejorar:" in item for item in record.should_learn)
+        assert state.total_reflections == 1
+        assert state.latest_reflection is not None
+        assert state.recurring_missing["No uso memoria o contexto previo."] == 1
+    finally:
+        reflection_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cognitive_reflection_recommends_autobiographical_memory_for_decisions():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_memory_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_autobiography_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt="Decision: CEIBO debe priorizar seguridad antes de ejecutar cambios.",
+                response=(
+                    "CEIBO debe interpretar, clasificar riesgo, pedir confirmacion y auditar "
+                    "antes de aplicar cambios reales."
+                ),
+                source="test",
+                intents=["security"],
+                used_context=True,
+                memory_context=["decision previa"],
+            )
+        )
+
+        assert record.recommended_memory is not None
+        assert record.recommended_memory.source == "cognitive_reflection_loop"
+        assert "sprint42" in record.recommended_memory.tags
+        assert record.score >= 70
+    finally:
+        reflection_path.unlink(missing_ok=True)
         memory_path.unlink(missing_ok=True)
 
 

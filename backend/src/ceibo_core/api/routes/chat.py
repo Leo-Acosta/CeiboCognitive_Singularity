@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ceibo_core.agents.registry import agent_registry
 from ceibo_core.db.session import get_db
-from ceibo_core.models.schemas import AgentRole, ChatRequest, ChatResponse
+from ceibo_core.models.schemas import AgentRole, ChatRequest, ChatResponse, CognitiveReflectionRequest
+from ceibo_core.services.cognitive_reflection import cognitive_reflection_service
 from ceibo_core.services.conversations import conversation_store
 from ceibo_core.services.event_bus import event_bus
 from ceibo_core.services.autobiographical_memory import autobiographical_memory_service
@@ -68,12 +69,28 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
         user_id=request.user_id,
         metadata={"role": "assistant", "trace_id": str(response.trace_id)},
     )
+    reflection = await cognitive_reflection_service.reflect_after_response(
+        CognitiveReflectionRequest(
+            prompt=request.message,
+            response=response.response,
+            source="chat",
+            user_id=request.user_id,
+            session_id=session_id,
+            memory_context=memory_context,
+            metadata={"trace_id": str(response.trace_id), "agent": response.agent.value},
+        )
+    )
     await conversation_store.audit(
         db,
         user_id=request.user_id,
         event_type="chat.completion",
         actor=response.agent.value,
-        payload={"session_id": session_id, "trace_id": str(response.trace_id)},
+        payload={
+            "session_id": session_id,
+            "trace_id": str(response.trace_id),
+            "reflection_id": reflection.reflection_id,
+            "reflection_score": reflection.score,
+        },
     )
     await event_bus.publish("ceibo.chat.completed", response.model_dump_json().encode())
     return response
