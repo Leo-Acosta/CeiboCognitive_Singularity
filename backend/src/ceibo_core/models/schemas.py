@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class AgentRole(StrEnum):
@@ -655,11 +655,45 @@ class LearningEventRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("instruction", "assistant_response", "corrected_response", mode="before")
+    @classmethod
+    def strip_learning_text(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def normalize_learning_tags(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return []
+        normalized: list[str] = []
+        for item in value:
+            tag = str(item).strip().lower().replace(" ", "-")
+            if tag and tag not in normalized:
+                normalized.append(tag[:48])
+        return normalized[:12]
+
+    @model_validator(mode="after")
+    def validate_learning_feedback(self) -> "LearningEventRequest":
+        if self.rating == TrainingFeedbackRating.CORRECTED:
+            correction = (self.corrected_response or "").strip()
+            if len(correction) < 12:
+                raise ValueError("corrected feedback requires a useful correction")
+            if correction.lower() == self.assistant_response.lower():
+                raise ValueError("corrected feedback must differ from the assistant response")
+        return self
+
 
 class LearningEventResponse(BaseModel):
     saved: bool
     example: TrainingExample
     summary: str
+    duplicate_of: str | None = None
+    quality_score: int = Field(default=0, ge=0, le=100)
+    warnings: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
 
 

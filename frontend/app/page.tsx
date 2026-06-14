@@ -79,6 +79,9 @@ type LastExchange = {
 type LearningEventResponse = {
   saved: boolean;
   summary: string;
+  duplicate_of: string | null;
+  quality_score: number;
+  warnings: string[];
   next_actions: string[];
   example: {
     example_id: string;
@@ -946,12 +949,16 @@ export default function Home() {
         throw new Error(`Learning event responded ${response.status}`);
       }
       const data = (await response.json()) as LearningEventResponse;
-      setLearningMessage(data.summary);
+      setLearningMessage(
+        data.saved
+          ? `${data.summary} Calidad ${data.quality_score}/100.`
+          : `${data.summary} No guarde duplicado.`
+      );
       setLearningCorrection("");
       addHistory({
         kind: "learning",
-        title: `feedback ${data.example.rating ?? rating}`,
-        detail: data.summary,
+        title: data.saved ? `feedback ${data.example.rating ?? rating}` : "feedback duplicado",
+        detail: data.warnings.length ? `${data.summary} ${data.warnings.join(" | ")}` : data.summary,
       });
       void refreshCognition();
     } catch {
@@ -1460,12 +1467,24 @@ export default function Home() {
                     <p className="mt-1 line-clamp-3 text-sm leading-6 text-slate-700">
                       {lastExchange.assistantResponse}
                     </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {lastExchange.intent ? (
+                        <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-500">
+                          {lastExchange.intent}
+                        </span>
+                      ) : null}
+                      {lastExchange.riskLevel ? (
+                        <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-500">
+                          riesgo {lastExchange.riskLevel}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <textarea
                     value={learningCorrection}
                     onChange={(event) => setLearningCorrection(event.target.value)}
-                    placeholder="Correccion ideal opcional..."
+                    placeholder="Correccion ideal para guardar como ejemplo corregido..."
                     className="min-h-24 w-full resize-none rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-white"
                   />
 
@@ -1489,7 +1508,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => void saveLearningEvent("corrected")}
-                      disabled={isSavingLearning}
+                      disabled={isSavingLearning || learningCorrection.trim().length < 12}
                       className="rounded-md border border-sky-200 bg-sky-50 px-2 py-2 text-xs font-semibold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Corregir
@@ -1498,6 +1517,10 @@ export default function Home() {
 
                   <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
                     {isSavingLearning ? "Guardando feedback..." : learningMessage}
+                  </p>
+                  <p className="text-xs leading-5 text-slate-500">
+                    Buena guarda la respuesta actual. Mala la guarda como contraejemplo. Corregir
+                    usa tu texto como version ideal y exige al menos 12 caracteres.
                   </p>
                 </div>
               ) : (

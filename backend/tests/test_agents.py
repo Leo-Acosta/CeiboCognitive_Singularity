@@ -3,6 +3,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from ceibo_core.agents.registry import agent_registry
 from ceibo_core.ai_engine import ceibo_engine
@@ -935,10 +936,56 @@ async def test_learning_loop_saves_human_feedback_event(monkeypatch):
         assert "learning_loop" in event.example.tags
         assert "workbench" in event.example.tags
         assert event.example.metadata["reviewed_by"] == "human"
+        assert event.example.metadata["learning_fingerprint"]
+        assert event.quality_score >= 80
         assert stats.tag_counts["learning_loop"] == 1
         assert stats.rating_counts["corrected"] == 1
     finally:
         dataset_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_learning_loop_detects_duplicate_events(monkeypatch):
+    service = TrainingDataService()
+    dataset_path = Path(".tmp-tests") / f"ceibo_learning_duplicate_{uuid4()}.jsonl"
+    monkeypatch.setattr(service, "dataset_path", lambda: dataset_path)
+
+    request = LearningEventRequest(
+        instruction="Resume la arquitectura actual de CEIBO",
+        assistant_response="CEIBO integra chat, memoria, seguridad, patch planner y aprendizaje.",
+        rating=TrainingFeedbackRating.GOOD,
+        tags=["Chat Review"],
+    )
+
+    try:
+        first = await service.append_learning_event(request)
+        second = await service.append_learning_event(request)
+        stats = await service.stats()
+
+        assert first.saved is True
+        assert second.saved is False
+        assert second.duplicate_of == first.example.example_id
+        assert second.warnings == ["duplicado exacto: no se guardo otra copia"]
+        assert stats.total_examples == 1
+        assert first.example.tags == [
+            "chat-review",
+            "learning_loop",
+            "workbench",
+            "feedback",
+            "rating:good",
+        ]
+    finally:
+        dataset_path.unlink(missing_ok=True)
+
+
+def test_learning_loop_rejects_empty_correction():
+    with pytest.raises(ValidationError):
+        LearningEventRequest(
+            instruction="Mejora esta respuesta",
+            assistant_response="Respuesta original suficientemente larga.",
+            corrected_response="igual",
+            rating=TrainingFeedbackRating.CORRECTED,
+        )
 
 
 def test_dataset_curator_scores_deduplicates_and_exports_jsonl():
