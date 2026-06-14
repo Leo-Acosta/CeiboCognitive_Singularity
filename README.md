@@ -106,6 +106,8 @@ API:
 - `POST /api/v1/engine/training/examples`
 - `POST /api/v1/engine/training/feedback`
 - `POST /api/v1/engine/training/learning-event`
+- `GET /api/v1/engine/training/human-feedback-studio`
+- `POST /api/v1/engine/training/human-feedback-studio/review`
 - `GET /api/v1/engine/training/promotion-gate`
 - `POST /api/v1/engine/training/evidence/build`
 - `GET /api/v1/engine/training/stats`

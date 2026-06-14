@@ -697,6 +697,47 @@ class LearningEventResponse(BaseModel):
     next_actions: list[str] = Field(default_factory=list)
 
 
+class HumanFeedbackStudioRequest(BaseModel):
+    instruction: str = Field(min_length=1)
+    assistant_response: str = Field(min_length=1)
+    rating: TrainingFeedbackRating = TrainingFeedbackRating.CORRECTED
+    corrected_response: str | None = None
+    intent: str | None = None
+    risk_level: str | None = None
+    policy_action: str | None = None
+    source: str = "human_feedback_studio"
+    tags: list[str] = Field(default_factory=list)
+    notes: str = ""
+
+    @field_validator(
+        "instruction",
+        "assistant_response",
+        "corrected_response",
+        "intent",
+        "risk_level",
+        "policy_action",
+        "source",
+        "notes",
+        mode="before",
+    )
+    @classmethod
+    def strip_human_feedback_text(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class HumanFeedbackStudioExample(BaseModel):
+    example_id: str
+    instruction: str
+    response_preview: str
+    rating: TrainingFeedbackRating | None = None
+    source: str
+    quality_score: int = Field(ge=0, le=100)
+    tags: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
 class TrainingDatasetStats(BaseModel):
     dataset_path: str
     total_examples: int
@@ -704,6 +745,20 @@ class TrainingDatasetStats(BaseModel):
     rating_counts: dict[str, int] = Field(default_factory=dict)
     source_counts: dict[str, int] = Field(default_factory=dict)
     last_updated: datetime | None = None
+
+
+class HumanFeedbackStudioReport(BaseModel):
+    studio_id: str = Field(default_factory=lambda: f"hf-{uuid4().hex[:10]}")
+    status: str
+    summary: str
+    stats: TrainingDatasetStats
+    recent_examples: list[HumanFeedbackStudioExample] = Field(default_factory=list)
+    saved_event: LearningEventResponse | None = None
+    targets: dict[str, int] = Field(default_factory=dict)
+    progress: dict[str, int] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class DatasetIssueSeverity(StrEnum):

@@ -17,6 +17,8 @@ from ceibo_core.models.schemas import (
     EvaluationRemediationPlan,
     EvaluationSuiteReport,
     EvaluationTrainingGate,
+    HumanFeedbackStudioReport,
+    HumanFeedbackStudioRequest,
     LearningEventRequest,
     LearningEventResponse,
     LearningCurationReview,
@@ -52,6 +54,7 @@ from ceibo_core.models.schemas import (
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.dataset_curator import dataset_curator_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
+from ceibo_core.services.human_feedback_studio import human_feedback_studio_service
 from ceibo_core.services.model_catalog import model_catalog_service
 from ceibo_core.services.model_registry import model_registry_service
 from ceibo_core.services.teacher_agent import teacher_agent_service
@@ -302,6 +305,21 @@ async def append_training_feedback(request: TrainingFeedbackRequest) -> Training
 @router.post("/training/learning-event", response_model=LearningEventResponse)
 async def append_learning_event(request: LearningEventRequest) -> LearningEventResponse:
     return await training_data_service.append_learning_event(request)
+
+
+@router.get("/training/human-feedback-studio", response_model=HumanFeedbackStudioReport)
+async def human_feedback_studio_status(limit: int = 8) -> HumanFeedbackStudioReport:
+    return await human_feedback_studio_service.status(limit=limit)
+
+
+@router.post("/training/human-feedback-studio/review", response_model=HumanFeedbackStudioReport)
+async def save_human_feedback_studio_review(
+    request: HumanFeedbackStudioRequest,
+) -> HumanFeedbackStudioReport:
+    try:
+        return await human_feedback_studio_service.save_review(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/training/promotion-gate", response_model=TrainingPromotionGate)

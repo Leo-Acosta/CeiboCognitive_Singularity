@@ -31,6 +31,7 @@ from ceibo_core.models.schemas import (
     DevCorePatchRollbackRequest,
     DevCorePatchVerifyRequest,
     HardwareProfile,
+    HumanFeedbackStudioRequest,
     JobKind,
     JobStatus,
     KnowledgeItemRequest,
@@ -73,6 +74,7 @@ from ceibo_core.services.evaluation_harness import (
     EvaluationHarnessService,
     evaluation_harness_service,
 )
+from ceibo_core.services.human_feedback_studio import HumanFeedbackStudioService
 from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.devcore_execution import CONFIRMATION_PHRASE, devcore_execution_sandbox
 from ceibo_core.services.devcore_patch_apply import (
@@ -990,6 +992,70 @@ async def test_learning_loop_detects_duplicate_events(monkeypatch):
             "feedback",
             "rating:good",
         ]
+    finally:
+        dataset_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_human_feedback_studio_saves_corrected_review(monkeypatch):
+    dataset_path = Path(".tmp-tests") / f"human_feedback_studio_{uuid4()}.jsonl"
+    monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
+    service = HumanFeedbackStudioService()
+
+    try:
+        report = await service.save_review(
+            HumanFeedbackStudioRequest(
+                instruction="Como debe actuar CEIBO antes de modificar codigo?",
+                assistant_response="Debe aplicar cambios cuando se le pida.",
+                corrected_response=(
+                    "Debe interpretar el pedido, preparar patch plan, pedir confirmacion, "
+                    "ejecutar tests y mantener rollback antes de aplicar cambios."
+                ),
+                rating=TrainingFeedbackRating.CORRECTED,
+                intent="modify_code",
+                risk_level="medium",
+                policy_action="confirm",
+                tags=["devcore", "safety"],
+            )
+        )
+
+        assert report.saved_event is not None
+        assert report.saved_event.saved is True
+        assert report.saved_event.example.rating == TrainingFeedbackRating.CORRECTED
+        assert report.saved_event.example.metadata["human_feedback_studio"] is True
+        assert report.progress["corrected_examples"] == 1
+        assert report.recent_examples[0].quality_score >= 80
+        assert any("Priorizar respuestas corregidas" in action for action in report.next_actions)
+    finally:
+        dataset_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_human_feedback_studio_status_warns_small_dataset(monkeypatch):
+    dataset_path = Path(".tmp-tests") / f"human_feedback_studio_status_{uuid4()}.jsonl"
+    monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
+    service = HumanFeedbackStudioService()
+
+    try:
+        dataset_path.parent.mkdir(exist_ok=True)
+        dataset_path.write_text(
+            json.dumps(
+                {
+                    "instruction": "Explica CEIBO",
+                    "response": "CEIBO es un nucleo cognitivo local.",
+                    "rating": "good",
+                    "tags": ["chat"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = await service.status()
+
+        assert report.status == "studio_warming_up"
+        assert report.progress["total_examples"] == 1
+        assert report.targets["total_examples"] == 100
+        assert "Dataset todavia chico para desbloquear entrenamiento." in report.warnings
     finally:
         dataset_path.unlink(missing_ok=True)
 

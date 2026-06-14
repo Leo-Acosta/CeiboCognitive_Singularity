@@ -92,6 +92,31 @@ type LearningEventResponse = {
   };
 };
 
+type HumanFeedbackStudioExample = {
+  example_id: string;
+  instruction: string;
+  response_preview: string;
+  rating: LearningRating | null;
+  source: string;
+  quality_score: number;
+  tags: string[];
+  created_at: string;
+};
+
+type HumanFeedbackStudioReport = {
+  studio_id: string;
+  status: string;
+  summary: string;
+  stats: TrainingDatasetStats;
+  recent_examples: HumanFeedbackStudioExample[];
+  saved_event: LearningEventResponse | null;
+  targets: Record<string, number>;
+  progress: Record<string, number>;
+  warnings: string[];
+  next_actions: string[];
+  created_at: string;
+};
+
 type TrainingDatasetStats = {
   dataset_path: string;
   total_examples: number;
@@ -688,6 +713,7 @@ export default function Home() {
   const [lastExchange, setLastExchange] = useState<LastExchange | null>(null);
   const [learningCorrection, setLearningCorrection] = useState("");
   const [learningMessage, setLearningMessage] = useState("Todavia no guardaste feedback.");
+  const [humanFeedbackStudio, setHumanFeedbackStudio] = useState<HumanFeedbackStudioReport | null>(null);
   const [learningCuration, setLearningCuration] = useState<LearningCurationReview | null>(null);
   const [curationMessage, setCurationMessage] = useState("Sin revision de dataset todavia.");
   const [evaluationReport, setEvaluationReport] = useState<EvaluationSuiteReport | null>(null);
@@ -702,6 +728,7 @@ export default function Home() {
   const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
+  const [isRefreshingFeedbackStudio, setIsRefreshingFeedbackStudio] = useState(false);
   const [isReviewingCuration, setIsReviewingCuration] = useState(false);
   const [isExportingCuration, setIsExportingCuration] = useState(false);
   const [isRunningEvaluation, setIsRunningEvaluation] = useState(false);
@@ -742,6 +769,7 @@ export default function Home() {
     void refreshStatus();
     setVoiceSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
     void refreshVoiceStatus();
+    void refreshHumanFeedbackStudio();
     void reviewLearningCuration();
     void refreshEvaluationGate();
     void refreshEvaluationRemediation();
@@ -797,6 +825,21 @@ export default function Home() {
       }
     } catch {
       setVoiceStatus(null);
+    }
+  }
+
+  async function refreshHumanFeedbackStudio() {
+    setIsRefreshingFeedbackStudio(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/human-feedback-studio`);
+      if (!response.ok) {
+        throw new Error(`Human Feedback Studio responded ${response.status}`);
+      }
+      setHumanFeedbackStudio((await response.json()) as HumanFeedbackStudioReport);
+    } catch {
+      setHumanFeedbackStudio(null);
+    } finally {
+      setIsRefreshingFeedbackStudio(false);
     }
   }
 
@@ -1460,7 +1503,7 @@ export default function Home() {
 
     setIsSavingLearning(true);
     try {
-      const response = await fetch(`${apiUrl}/api/v1/engine/training/learning-event`, {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/human-feedback-studio/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1468,33 +1511,34 @@ export default function Home() {
           assistant_response: lastExchange.assistantResponse,
           rating,
           corrected_response: correction || null,
-          source: "workbench",
-          tags: ["chat", "human-feedback"],
-          metadata: {
-            surface: "devcore-workbench",
-            intent: lastExchange.intent,
-            risk_level: lastExchange.riskLevel,
-            policy_action: lastExchange.policyAction,
-          },
+          source: "human_feedback_studio",
+          tags: ["chat", "human-feedback", "sprint40"],
+          intent: lastExchange.intent,
+          risk_level: lastExchange.riskLevel,
+          policy_action: lastExchange.policyAction,
+          notes: "revision desde DevCore Workbench",
         }),
       });
       if (!response.ok) {
-        throw new Error(`Learning event responded ${response.status}`);
+        throw new Error(`Human Feedback Studio responded ${response.status}`);
       }
-      const data = (await response.json()) as LearningEventResponse;
+      const report = (await response.json()) as HumanFeedbackStudioReport;
+      const data = report.saved_event;
+      setHumanFeedbackStudio(report);
       setLearningMessage(
-        data.saved
+        data?.saved
           ? `${data.summary} Calidad ${data.quality_score}/100.`
-          : `${data.summary} No guarde duplicado.`
+          : `${data?.summary ?? report.summary} No guarde duplicado.`
       );
       setLearningCorrection("");
       addHistory({
         kind: "learning",
-        title: data.saved ? `feedback ${data.example.rating ?? rating}` : "feedback duplicado",
-        detail: data.warnings.length ? `${data.summary} ${data.warnings.join(" | ")}` : data.summary,
+        title: data?.saved ? `feedback ${data.example.rating ?? rating}` : "feedback duplicado",
+        detail: data?.warnings.length ? `${data.summary} ${data.warnings.join(" | ")}` : report.summary,
       });
       void refreshCognition();
       void reviewLearningCuration();
+      void refreshTrainingPromotionGate();
     } catch {
       setLearningMessage("No pude guardar el feedback en el dataset local.");
       setConnection("offline");
@@ -2166,14 +2210,60 @@ export default function Home() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Sprint 31
+                    Sprint 40
                   </p>
                   <h2 className="mt-1 text-lg font-semibold text-slate-950">
-                    Learning Loop v1
+                    Human Feedback Studio
                   </h2>
                 </div>
                 <CheckCircle2 className="h-5 w-5 text-emerald-700" />
               </div>
+
+              {humanFeedbackStudio ? (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold">{humanFeedbackStudio.status}</p>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium">
+                        {humanFeedbackStudio.progress.total_examples}/
+                        {humanFeedbackStudio.targets.total_examples}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5">{humanFeedbackStudio.summary}</p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                      <p className="text-xs text-slate-500">good</p>
+                      <p className="font-semibold text-slate-900">
+                        {humanFeedbackStudio.progress.good_examples}
+                      </p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                      <p className="text-xs text-slate-500">corrected</p>
+                      <p className="font-semibold text-slate-900">
+                        {humanFeedbackStudio.progress.corrected_examples}
+                      </p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                      <p className="text-xs text-slate-500">bad</p>
+                      <p className="font-semibold text-slate-900">
+                        {humanFeedbackStudio.progress.bad_examples}
+                      </p>
+                    </div>
+                  </div>
+
+                  {humanFeedbackStudio.warnings[0] ? (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                      {humanFeedbackStudio.warnings[0]}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                  El estudio carga el estado del dataset humano y las ultimas revisiones guardadas.
+                </p>
+              )}
 
               {lastExchange ? (
                 <div className="mt-4 space-y-3">
@@ -2246,6 +2336,48 @@ export default function Home() {
                   corregida para alimentar el dataset local.
                 </p>
               )}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void refreshHumanFeedbackStudio()}
+                  disabled={isRefreshingFeedbackStudio}
+                  className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-sky-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isRefreshingFeedbackStudio ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                  Refrescar studio
+                </button>
+              </div>
+
+              {humanFeedbackStudio?.recent_examples.length ? (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Ultimos ejemplos
+                  </p>
+                  {humanFeedbackStudio.recent_examples.slice(0, 3).map((example) => (
+                    <div
+                      key={example.example_id}
+                      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-medium text-slate-800">
+                          {example.instruction}
+                        </p>
+                        <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">
+                          {example.quality_score}/100
+                        </span>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                        {example.response_preview}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
