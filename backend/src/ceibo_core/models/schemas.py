@@ -582,6 +582,59 @@ class MemoryHealth(BaseModel):
     local_items: int
 
 
+class AutobiographicalMemoryKind(StrEnum):
+    GOAL = "goal"
+    DECISION = "decision"
+    PREFERENCE = "preference"
+    PROJECT_STATE = "project_state"
+    USER_PROFILE = "user_profile"
+    SAFETY_RULE = "safety_rule"
+
+
+class AutobiographicalMemoryRequest(BaseModel):
+    kind: AutobiographicalMemoryKind
+    title: str = Field(min_length=1, max_length=180)
+    content: str = Field(min_length=1, max_length=2000)
+    importance: int = Field(default=70, ge=1, le=100)
+    source: str = "manual"
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("title", "content", "source", mode="before")
+    @classmethod
+    def strip_autobiographical_text(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class AutobiographicalMemoryEntry(BaseModel):
+    memory_id: str = Field(default_factory=lambda: f"auto-{uuid4().hex[:12]}")
+    kind: AutobiographicalMemoryKind
+    title: str
+    content: str
+    importance: int = Field(default=70, ge=1, le=100)
+    source: str = "manual"
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime | None = None
+
+
+class AutobiographicalMemoryState(BaseModel):
+    status: str
+    summary: str
+    memory_path: str
+    total_entries: int
+    kind_counts: dict[str, int] = Field(default_factory=dict)
+    important_entries: list[AutobiographicalMemoryEntry] = Field(default_factory=list)
+    recent_entries: list[AutobiographicalMemoryEntry] = Field(default_factory=list)
+    saved_entry: AutobiographicalMemoryEntry | None = None
+    warnings: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class EngineGenerateRequest(BaseModel):
     message: str = Field(min_length=1)
     system_prompt: str = ""

@@ -10,6 +10,7 @@ from ceibo_core.models.schemas import (
     CognitionState,
 )
 from ceibo_core.services.devcore import devcore_service
+from ceibo_core.services.autobiographical_memory import autobiographical_memory_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.memory import knowledge_service, memory_service
 from ceibo_core.services.singularity_index import singularity_index_service
@@ -20,6 +21,7 @@ from ceibo_core.services.voice_control import voice_control_service
 class CognitionService:
     async def state(self) -> CognitionState:
         memory_status = await memory_service.status()
+        autobiographical_state = await autobiographical_memory_service.state(limit=4)
         knowledge_status = await knowledge_service.status(None)
         training_stats = await training_data_service.stats()
         singularity = await singularity_index_service.calculate()
@@ -53,8 +55,13 @@ class CognitionService:
                     self._signal("Memoria local", memory_status.available, memory_status.backend),
                     self._signal("Vector memory", memory_status.vector_enabled, memory_status.collection_name),
                     self._signal("Knowledge Base", knowledge_status.total_items > 0, f"{knowledge_status.total_items} items"),
+                    self._signal(
+                        "Autobiographical Memory",
+                        autobiographical_state.total_entries > 0,
+                        f"{autobiographical_state.total_entries} recuerdos",
+                    ),
                 ],
-                ["Guardar decisiones tecnicas como knowledge", "Curar memoria por proyecto y sprint"],
+                ["Guardar decisiones tecnicas como autobiografia", "Curar memoria por proyecto y sprint"],
             ),
             self._layer(
                 "reasoning",

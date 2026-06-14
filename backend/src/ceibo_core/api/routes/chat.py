@@ -8,6 +8,7 @@ from ceibo_core.db.session import get_db
 from ceibo_core.models.schemas import AgentRole, ChatRequest, ChatResponse
 from ceibo_core.services.conversations import conversation_store
 from ceibo_core.services.event_bus import event_bus
+from ceibo_core.services.autobiographical_memory import autobiographical_memory_service
 from ceibo_core.services.memory import memory_service
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -18,7 +19,12 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
     session_id = request.session_id or str(uuid4())
     recent_messages = await conversation_store.recent_messages(db, session_id=session_id)
     semantic_memory = await memory_service.retrieve(session_id=session_id, query=request.message)
-    memory_context = [*recent_messages, *[record.content for record in semantic_memory]]
+    autobiographical_context = await autobiographical_memory_service.context_for(request.message)
+    memory_context = [
+        *autobiographical_context,
+        *recent_messages,
+        *[record.content for record in semantic_memory],
+    ]
 
     await conversation_store.append_message(
         db,

@@ -117,6 +117,32 @@ type HumanFeedbackStudioReport = {
   created_at: string;
 };
 
+type AutobiographicalMemoryEntry = {
+  memory_id: string;
+  kind: string;
+  title: string;
+  content: string;
+  importance: number;
+  source: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string | null;
+};
+
+type AutobiographicalMemoryState = {
+  status: string;
+  summary: string;
+  memory_path: string;
+  total_entries: number;
+  kind_counts: Record<string, number>;
+  important_entries: AutobiographicalMemoryEntry[];
+  recent_entries: AutobiographicalMemoryEntry[];
+  saved_entry: AutobiographicalMemoryEntry | null;
+  warnings: string[];
+  next_actions: string[];
+  created_at: string;
+};
+
 type TrainingDatasetStats = {
   dataset_path: string;
   total_examples: number;
@@ -714,6 +740,8 @@ export default function Home() {
   const [learningCorrection, setLearningCorrection] = useState("");
   const [learningMessage, setLearningMessage] = useState("Todavia no guardaste feedback.");
   const [humanFeedbackStudio, setHumanFeedbackStudio] = useState<HumanFeedbackStudioReport | null>(null);
+  const [autobiographicalMemory, setAutobiographicalMemory] =
+    useState<AutobiographicalMemoryState | null>(null);
   const [learningCuration, setLearningCuration] = useState<LearningCurationReview | null>(null);
   const [curationMessage, setCurationMessage] = useState("Sin revision de dataset todavia.");
   const [evaluationReport, setEvaluationReport] = useState<EvaluationSuiteReport | null>(null);
@@ -729,6 +757,7 @@ export default function Home() {
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
   const [isRefreshingFeedbackStudio, setIsRefreshingFeedbackStudio] = useState(false);
+  const [isRefreshingAutobiographicalMemory, setIsRefreshingAutobiographicalMemory] = useState(false);
   const [isReviewingCuration, setIsReviewingCuration] = useState(false);
   const [isExportingCuration, setIsExportingCuration] = useState(false);
   const [isRunningEvaluation, setIsRunningEvaluation] = useState(false);
@@ -770,6 +799,7 @@ export default function Home() {
     setVoiceSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
     void refreshVoiceStatus();
     void refreshHumanFeedbackStudio();
+    void refreshAutobiographicalMemory(true);
     void reviewLearningCuration();
     void refreshEvaluationGate();
     void refreshEvaluationRemediation();
@@ -840,6 +870,31 @@ export default function Home() {
       setHumanFeedbackStudio(null);
     } finally {
       setIsRefreshingFeedbackStudio(false);
+    }
+  }
+
+  async function refreshAutobiographicalMemory(bootstrapIfEmpty = false) {
+    setIsRefreshingAutobiographicalMemory(true);
+    try {
+      let response = await fetch(`${apiUrl}/api/v1/engine/memory/autobiographical`);
+      if (!response.ok) {
+        throw new Error(`Autobiographical memory responded ${response.status}`);
+      }
+      let data = (await response.json()) as AutobiographicalMemoryState;
+      if (bootstrapIfEmpty && data.total_entries === 0) {
+        response = await fetch(`${apiUrl}/api/v1/engine/memory/autobiographical/bootstrap`, {
+          method: "POST",
+        });
+        if (!response.ok) {
+          throw new Error(`Autobiographical bootstrap responded ${response.status}`);
+        }
+        data = (await response.json()) as AutobiographicalMemoryState;
+      }
+      setAutobiographicalMemory(data);
+    } catch {
+      setAutobiographicalMemory(null);
+    } finally {
+      setIsRefreshingAutobiographicalMemory(false);
     }
   }
 
@@ -1941,6 +1996,101 @@ export default function Home() {
                   {voiceStatus?.safety_notes[0] ??
                     "Voice v1 autoriza por frase hablada; las ordenes siguen pasando por seguridad."}
                 </p>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Sprint 41
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Autobiographical Memory
+                  </h2>
+                </div>
+                <Bot className="h-5 w-5 text-sky-700" />
+              </div>
+
+              {autobiographicalMemory ? (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold">{autobiographicalMemory.status}</p>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium">
+                        {autobiographicalMemory.total_entries} recuerdos
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5">{autobiographicalMemory.summary}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-center">
+                    {["goal", "decision", "preference", "project_state"].map((kind) => (
+                      <div
+                        key={kind}
+                        className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2"
+                      >
+                        <p className="truncate text-xs text-slate-500">{kind}</p>
+                        <p className="font-semibold text-slate-900">
+                          {autobiographicalMemory.kind_counts[kind] ?? 0}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {autobiographicalMemory.warnings[0] ? (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                      {autobiographicalMemory.warnings[0]}
+                    </p>
+                  ) : null}
+
+                  {autobiographicalMemory.important_entries.length ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Recuerdos importantes
+                      </p>
+                      {autobiographicalMemory.important_entries.slice(0, 3).map((entry) => (
+                        <div
+                          key={entry.memory_id}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate text-sm font-medium text-slate-800">
+                              {entry.title}
+                            </p>
+                            <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">
+                              {entry.importance}
+                            </span>
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                            {entry.content}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                  Esta capa guarda objetivos, decisiones, preferencias y estado del proyecto para
+                  mantener continuidad entre sesiones.
+                </p>
+              )}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void refreshAutobiographicalMemory(true)}
+                  disabled={isRefreshingAutobiographicalMemory}
+                  className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-sky-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isRefreshingAutobiographicalMemory ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                  Sembrar memoria base
+                </button>
               </div>
             </div>
 

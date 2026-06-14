@@ -12,6 +12,7 @@ from ceibo_core.core.security import assert_permission, task_action_for_goal
 from ceibo_core.db.session import persistence_health
 from ceibo_core.models.schemas import (
     AgentRole,
+    AutobiographicalMemoryRequest,
     AuthContext,
     ChatRequest,
     DatasetVersionRequest,
@@ -67,6 +68,7 @@ from ceibo_core.models.schemas import (
 )
 from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
+from ceibo_core.services.autobiographical_memory import AutobiographicalMemoryService
 from ceibo_core.services.cognition import cognition_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import (
@@ -1058,6 +1060,59 @@ async def test_human_feedback_studio_status_warns_small_dataset(monkeypatch):
         assert "Dataset todavia chico para desbloquear entrenamiento." in report.warnings
     finally:
         dataset_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_autobiographical_memory_bootstraps_and_retrieves_context():
+    memory_path = Path(".tmp-tests") / f"autobiographical_memory_{uuid4()}.json"
+    service = AutobiographicalMemoryService(memory_path)
+
+    try:
+        bootstrapped = await service.bootstrap()
+        repeated = await service.bootstrap()
+        context = await service.context_for("robot con voz y movimiento", limit=3)
+
+        assert bootstrapped.total_entries >= 4
+        assert repeated.total_entries == bootstrapped.total_entries
+        assert bootstrapped.kind_counts["goal"] >= 1
+        assert bootstrapped.kind_counts["decision"] >= 1
+        assert any("robot" in item.lower() for item in context)
+    finally:
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_autobiographical_memory_sanitizes_and_upserts():
+    memory_path = Path(".tmp-tests") / f"autobiographical_memory_upsert_{uuid4()}.json"
+    service = AutobiographicalMemoryService(memory_path)
+
+    try:
+        first = await service.remember(
+            AutobiographicalMemoryRequest(
+                kind="preference",
+                title="Estilo de trabajo",
+                content="Prefiero respuestas claras y accionables con token=abc123456789.",
+                importance=80,
+                tags=["Estilo", "CEIBO"],
+            )
+        )
+        second = await service.remember(
+            AutobiographicalMemoryRequest(
+                kind="preference",
+                title="Estilo de trabajo",
+                content="Prefiero respuestas claras, accionables y con seguimiento por sprint.",
+                importance=88,
+                tags=["sprint"],
+            )
+        )
+
+        assert first.total_entries == 1
+        assert second.total_entries == 1
+        assert second.important_entries[0].importance == 88
+        assert "sprint" in second.important_entries[0].tags
+        assert "token=abc" not in memory_path.read_text(encoding="utf-8")
+    finally:
+        memory_path.unlink(missing_ok=True)
 
 
 def test_learning_loop_rejects_empty_correction():

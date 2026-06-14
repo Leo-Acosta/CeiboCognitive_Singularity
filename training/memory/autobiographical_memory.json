@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "updated_at": "2026-06-14T19:54:00.794023+00:00",
+  "entries": [
+    {
+      "memory_id": "auto-2b309b912f596171",
+      "kind": "goal",
+      "title": "Construir CEIBO como nucleo cognitivo local",
+      "content": "El objetivo principal del proyecto es evolucionar CEIBO CORE como cerebro logico y de discernimiento para un futuro robot con voz, vision, movimiento y toma de decisiones.",
+      "importance": 95,
+      "source": "sprint41_seed",
+      "tags": [
+        "ceibo",
+        "robot",
+        "cognition",
+        "long-term-goal"
+      ],
+      "metadata": {},
+      "created_at": "2026-06-14T19:51:25.411619Z",
+      "updated_at": "2026-06-14T19:52:31.662394Z"
+    },
+    {
+      "memory_id": "auto-eebd82a955e610fa",
+      "kind": "decision",
+      "title": "Autonomia controlada antes que ejecucion libre",
+      "content": "CEIBO debe interpretar, clasificar riesgo, pedir confirmacion, ejecutar en sandbox, auditar y permitir rollback antes de aplicar acciones delicadas.",
+      "importance": 92,
+      "source": "sprint41_seed",
+      "tags": [
+        "safety",
+        "devcore",
+        "execution-gate"
+      ],
+      "metadata": {},
+      "created_at": "2026-06-14T19:51:25.411827Z",
+      "updated_at": "2026-06-14T19:52:31.662527Z"
+    },
+    {
+      "memory_id": "auto-ed9842f4ecddb72e",
+      "kind": "preference",
+      "title": "Trabajar en sprints robustos y verificables",
+      "content": "El usuario prefiere avanzar por sprints, cerrar ciclos con tests, commit y push, y mantener controles de seguridad antes de ejecucion real.",
+      "importance": 90,
+      "source": "sprint41_seed",
+      "tags": [
+        "workflow",
+        "sprints",
+        "verification"
+      ],
+      "metadata": {},
+      "created_at": "2026-06-14T19:51:25.411780Z",
+      "updated_at": "2026-06-14T19:52:31.662476Z"
+    },
+    {
+      "memory_id": "auto-fc70110cc0a83775",
+      "kind": "project_state",
+      "title": "Sprint 41 habilita memoria autobiografica",
+      "content": "El proyecto ya tiene Workbench, parser DevCore, safety layer, sandbox, patch gates, feedback humano, learning loop, evaluaciones y evidencia de entrenamiento.",
+      "importance": 85,
+      "source": "sprint41_seed",
+      "tags": [
+        "sprint41",
+        "project-state",
+        "memory"
+      ],
+      "metadata": {},
+      "created_at": "2026-06-14T19:51:25.411857Z",
+      "updated_at": "2026-06-14T19:52:31.662567Z"
+    }
+  ]
+}

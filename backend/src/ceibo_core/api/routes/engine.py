@@ -5,6 +5,8 @@ from ceibo_core.ai_engine import ceibo_engine
 from ceibo_core.core.security import require_audited_permission
 from ceibo_core.db.session import get_db
 from ceibo_core.models.schemas import (
+    AutobiographicalMemoryRequest,
+    AutobiographicalMemoryState,
     DatasetVersionRecord,
     DatasetVersionRequest,
     AuthContext,
@@ -52,6 +54,7 @@ from ceibo_core.models.schemas import (
     TrainingRunnerReport,
 )
 from ceibo_core.services.audit import audit_trail_service
+from ceibo_core.services.autobiographical_memory import autobiographical_memory_service
 from ceibo_core.services.dataset_curator import dataset_curator_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.human_feedback_studio import human_feedback_studio_service
@@ -151,11 +154,29 @@ async def apply_evaluation_remediation(
 
 @router.post("/generate", response_model=EngineGenerateResponse)
 async def generate(request: EngineGenerateRequest) -> EngineGenerateResponse:
+    autobiographical_context = await autobiographical_memory_service.context_for(request.message)
     return await ceibo_engine.generate(
         system_prompt=request.system_prompt,
         user_message=request.message,
-        context=request.context,
+        context=[*autobiographical_context, *request.context],
     )
+
+
+@router.get("/memory/autobiographical", response_model=AutobiographicalMemoryState)
+async def autobiographical_memory_state(limit: int = 8) -> AutobiographicalMemoryState:
+    return await autobiographical_memory_service.state(limit=limit)
+
+
+@router.post("/memory/autobiographical", response_model=AutobiographicalMemoryState)
+async def save_autobiographical_memory(
+    request: AutobiographicalMemoryRequest,
+) -> AutobiographicalMemoryState:
+    return await autobiographical_memory_service.remember(request)
+
+
+@router.post("/memory/autobiographical/bootstrap", response_model=AutobiographicalMemoryState)
+async def bootstrap_autobiographical_memory() -> AutobiographicalMemoryState:
+    return await autobiographical_memory_service.bootstrap()
 
 
 @router.get("/models", response_model=list[ModelCandidate])

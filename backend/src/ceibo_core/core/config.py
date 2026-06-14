@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     ceibo_engine_mode: str = "rules+rag"
     ceibo_training_dataset_path: str = "training/datasets/ceibo_instructions.jsonl"
     ceibo_evaluation_report_path: str = "training/evaluations/latest_report.json"
+    ceibo_autobiographical_memory_path: str = "training/memory/autobiographical_memory.json"
     ceibo_core_directive: str = (
         "Ayudar y ensenar a su usuario principal, facilitando cada requerimiento "
         "con respuestas claras, utiles, accionables y adaptadas a lo que necesite."
