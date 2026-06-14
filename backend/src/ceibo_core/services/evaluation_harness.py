@@ -17,6 +17,8 @@ from ceibo_core.models.schemas import (
     EvaluationRemediationApplyRequest,
     EvaluationRemediationApplyResponse,
     EvaluationRemediationItem,
+    EvaluationRemediationOutcome,
+    EvaluationRemediationOutcomeReview,
     EvaluationRemediationPlan,
     EvaluationSuiteReport,
     EvaluationTrainingGate,
@@ -44,9 +46,14 @@ class EvaluationCase:
 
 
 class EvaluationHarnessService:
-    def __init__(self, report_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        report_path: Path | None = None,
+        outcome_path: Path | None = None,
+    ) -> None:
         self._latest_report: EvaluationSuiteReport | None = None
         self._report_path = report_path
+        self._outcome_path = outcome_path
 
     async def run(self) -> EvaluationSuiteReport:
         results = [
@@ -219,6 +226,13 @@ class EvaluationHarnessService:
             and after_report.average_score >= before_report.average_score
             and (after_case.passed if after_case else False)
         )
+        outcome = self._build_outcome(
+            case_id=request.case_id,
+            before_report=before_report,
+            after_report=after_report,
+        )
+        self._append_outcome(outcome)
+
         next_actions = [
             "Revisar el evento guardado en Learning Curation.",
             "Mantener bloqueado entrenamiento si el score no mejora.",
@@ -247,7 +261,42 @@ class EvaluationHarnessService:
             case_before_passed=before_case.passed if before_case else None,
             case_after_passed=after_case.passed if after_case else None,
             promotable=promotable,
+            outcome=outcome,
             next_actions=next_actions,
+        )
+
+    def remediation_outcomes(self, limit: int = 12) -> EvaluationRemediationOutcomeReview:
+        outcomes = self._load_outcomes()
+        if not outcomes:
+            return EvaluationRemediationOutcomeReview(
+                available=False,
+                summary="Todavia no hay remediaciones aplicadas para revisar.",
+                next_actions=[
+                    "Aplicar una remediacion con confirmacion humana.",
+                    "Re-ejecutar Evaluation Loop para generar comparacion antes/despues.",
+                ],
+            )
+
+        recent = outcomes[-limit:]
+        latest = recent[-1]
+        accepted_count = sum(1 for outcome in outcomes if outcome.status == "accepted")
+        blocked_count = sum(1 for outcome in outcomes if outcome.status == "blocked")
+        regression_count = sum(1 for outcome in outcomes if outcome.status == "regression")
+        pending_count = sum(1 for outcome in outcomes if outcome.status == "pending_review")
+        return EvaluationRemediationOutcomeReview(
+            available=True,
+            summary=(
+                f"{len(outcomes)} outcome(s) registrados: "
+                f"{accepted_count} aceptados, {blocked_count} bloqueados, "
+                f"{regression_count} con regresion y {pending_count} pendientes."
+            ),
+            latest_outcome=latest,
+            outcomes=list(reversed(recent)),
+            accepted_count=accepted_count,
+            blocked_count=blocked_count,
+            regression_count=regression_count,
+            pending_count=pending_count,
+            next_actions=latest.next_actions,
         )
 
     def project_root(self) -> Path:
@@ -267,6 +316,12 @@ class EvaluationHarnessService:
             return configured
         return self.project_root() / configured
 
+    def outcome_path(self) -> Path:
+        if self._outcome_path is not None:
+            return self._outcome_path
+        report_path = self.report_path()
+        return report_path.with_name("remediation_outcomes.jsonl")
+
     def _save_latest_report(self, report: EvaluationSuiteReport) -> None:
         path = self.report_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -282,6 +337,26 @@ class EvaluationHarnessService:
             return EvaluationSuiteReport.model_validate(json.loads(path.read_text(encoding="utf-8")))
         except (JSONDecodeError, OSError, ValidationError):
             return None
+
+    def _append_outcome(self, outcome: EvaluationRemediationOutcome) -> None:
+        path = self.outcome_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as file:
+            file.write(outcome.model_dump_json() + "\n")
+
+    def _load_outcomes(self) -> list[EvaluationRemediationOutcome]:
+        path = self.outcome_path()
+        if not path.exists():
+            return []
+        outcomes: list[EvaluationRemediationOutcome] = []
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            if not line.strip():
+                continue
+            try:
+                outcomes.append(EvaluationRemediationOutcome.model_validate(json.loads(line)))
+            except (JSONDecodeError, ValidationError):
+                continue
+        return outcomes
 
     async def training_gate(self) -> EvaluationTrainingGate:
         curation_review = await dataset_curator_service.review(DatasetCurationRequest(min_score=60))
@@ -535,6 +610,101 @@ class EvaluationHarnessService:
             )
             for category in categories
         }
+
+    def _build_outcome(
+        self,
+        case_id: str,
+        before_report: EvaluationSuiteReport,
+        after_report: EvaluationSuiteReport | None,
+    ) -> EvaluationRemediationOutcome:
+        before_case = self._case_by_id(before_report, case_id)
+        after_case = self._case_by_id(after_report, case_id) if after_report else None
+        improved_cases = self._changed_cases(before_report, after_report, direction="improved")
+        degraded_cases = self._changed_cases(before_report, after_report, direction="degraded")
+        unchanged_failed_cases = self._unchanged_failed_cases(after_report)
+        score_delta = (
+            after_report.average_score - before_report.average_score if after_report else None
+        )
+
+        if after_report is None:
+            status = "pending_review"
+            accepted = False
+            recommendation = "Remediacion guardada, pero falta re-ejecutar evaluacion."
+            next_actions = [
+                "Ejecutar Evaluation Loop.",
+                "Comparar score, caso objetivo y regresiones antes de promover.",
+            ]
+        elif degraded_cases:
+            status = "regression"
+            accepted = False
+            recommendation = "La remediacion produjo regresiones; no debe promoverse."
+            next_actions = [
+                "Revisar casos degradados antes de aceptar.",
+                "Crear una correccion mas especifica y repetir la evaluacion.",
+            ]
+        elif after_case and after_case.passed and (score_delta or 0) >= 0:
+            status = "accepted"
+            accepted = True
+            recommendation = "La remediacion es aceptable: el caso objetivo paso sin regresiones."
+            next_actions = [
+                "Mantener el ejemplo corregido en dataset curado.",
+                "Usar este outcome como evidencia para el proximo training gate.",
+            ]
+            if unchanged_failed_cases:
+                next_actions.append("Atacar el siguiente caso fallido sin asumir promocion global.")
+        else:
+            status = "blocked"
+            accepted = False
+            recommendation = "La remediacion quedo guardada, pero no resolvio el caso objetivo."
+            next_actions = [
+                "Mejorar el ejemplo corregido con senales mas explicitas.",
+                "Volver a aplicar con confirmacion y comparar nuevamente.",
+            ]
+
+        return EvaluationRemediationOutcome(
+            case_id=case_id,
+            status=status,
+            accepted=accepted,
+            before_run_id=before_report.run_id,
+            after_run_id=after_report.run_id if after_report else None,
+            before_score=before_report.average_score,
+            after_score=after_report.average_score if after_report else None,
+            score_delta=score_delta,
+            case_before_passed=before_case.passed if before_case else None,
+            case_after_passed=after_case.passed if after_case else None,
+            improved_cases=improved_cases,
+            degraded_cases=degraded_cases,
+            unchanged_failed_cases=unchanged_failed_cases,
+            recommendation=recommendation,
+            next_actions=next_actions,
+        )
+
+    def _changed_cases(
+        self,
+        before_report: EvaluationSuiteReport,
+        after_report: EvaluationSuiteReport | None,
+        direction: str,
+    ) -> list[str]:
+        if after_report is None:
+            return []
+        before_by_id = {result.case_id: result for result in before_report.results}
+        changed: list[str] = []
+        for after_case in after_report.results:
+            before_case = before_by_id.get(after_case.case_id)
+            if before_case is None:
+                continue
+            if direction == "improved" and after_case.score > before_case.score:
+                changed.append(after_case.case_id)
+            if direction == "degraded" and after_case.score < before_case.score:
+                changed.append(after_case.case_id)
+        return changed
+
+    def _unchanged_failed_cases(
+        self, report: EvaluationSuiteReport | None
+    ) -> list[str]:
+        if report is None:
+            return []
+        return [result.case_id for result in report.results if not result.passed]
 
     def _case_by_id(
         self, report: EvaluationSuiteReport | None, case_id: str

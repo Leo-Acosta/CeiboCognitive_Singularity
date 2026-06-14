@@ -228,6 +228,39 @@ type EvaluationRemediationApplyResponse = {
   case_before_passed: boolean | null;
   case_after_passed: boolean | null;
   promotable: boolean;
+  outcome: EvaluationRemediationOutcome | null;
+  next_actions: string[];
+};
+
+type EvaluationRemediationOutcome = {
+  outcome_id: string;
+  case_id: string;
+  status: string;
+  accepted: boolean;
+  before_run_id: string;
+  after_run_id: string | null;
+  before_score: number;
+  after_score: number | null;
+  score_delta: number | null;
+  case_before_passed: boolean | null;
+  case_after_passed: boolean | null;
+  improved_cases: string[];
+  degraded_cases: string[];
+  unchanged_failed_cases: string[];
+  recommendation: string;
+  next_actions: string[];
+  created_at: string;
+};
+
+type EvaluationRemediationOutcomeReview = {
+  available: boolean;
+  summary: string;
+  latest_outcome: EvaluationRemediationOutcome | null;
+  outcomes: EvaluationRemediationOutcome[];
+  accepted_count: number;
+  blocked_count: number;
+  regression_count: number;
+  pending_count: number;
   next_actions: string[];
 };
 
@@ -584,6 +617,7 @@ export default function Home() {
   const [evaluationRemediation, setEvaluationRemediation] = useState<EvaluationRemediationPlan | null>(null);
   const [remediationConfirmation, setRemediationConfirmation] = useState("");
   const [remediationApplyResult, setRemediationApplyResult] = useState<EvaluationRemediationApplyResponse | null>(null);
+  const [remediationOutcomeReview, setRemediationOutcomeReview] = useState<EvaluationRemediationOutcomeReview | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
@@ -627,6 +661,7 @@ export default function Home() {
     void reviewLearningCuration();
     void refreshEvaluationGate();
     void refreshEvaluationRemediation();
+    void refreshRemediationOutcomes();
   }, []);
 
   useEffect(() => {
@@ -773,6 +808,18 @@ export default function Home() {
     }
   }
 
+  async function refreshRemediationOutcomes() {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/evaluations/remediation/outcomes`);
+      if (!response.ok) {
+        throw new Error(`Remediation outcomes responded ${response.status}`);
+      }
+      setRemediationOutcomeReview((await response.json()) as EvaluationRemediationOutcomeReview);
+    } catch {
+      setRemediationOutcomeReview(null);
+    }
+  }
+
   async function applyEvaluationRemediation(caseId: string) {
     setIsApplyingRemediation(true);
     try {
@@ -805,6 +852,7 @@ export default function Home() {
       }
       void refreshEvaluationGate();
       void refreshEvaluationRemediation();
+      void refreshRemediationOutcomes();
       void reviewLearningCuration();
       void refreshCognition();
     } catch {
@@ -835,6 +883,7 @@ export default function Home() {
       });
       void refreshEvaluationGate();
       void refreshEvaluationRemediation();
+      void refreshRemediationOutcomes();
       void refreshCognition();
     } catch {
       setEvaluationMessage("No pude ejecutar la evaluacion local.");
@@ -2198,6 +2247,80 @@ export default function Home() {
                           {remediationApplyResult.promotable ? "habilitable" : "bloqueada"}
                         </p>
                       </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {remediationOutcomeReview?.available && remediationOutcomeReview.latest_outcome ? (
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Sprint 36
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
+                          Outcome Review
+                        </p>
+                      </div>
+                      <CheckCircle2
+                        className={`h-5 w-5 ${
+                          remediationOutcomeReview.latest_outcome.accepted
+                            ? "text-emerald-600"
+                            : "text-amber-600"
+                        }`}
+                      />
+                    </div>
+                    <div
+                      className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${
+                        remediationOutcomeReview.latest_outcome.status === "regression"
+                          ? "border-red-200 bg-red-50 text-red-800"
+                          : remediationOutcomeReview.latest_outcome.accepted
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : "border-amber-200 bg-amber-50 text-amber-800"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-semibold">
+                          {remediationOutcomeReview.latest_outcome.status}
+                        </p>
+                        <span>
+                          Delta {remediationOutcomeReview.latest_outcome.score_delta ?? "pendiente"}
+                        </span>
+                      </div>
+                      <p className="mt-1">
+                        {remediationOutcomeReview.latest_outcome.recommendation}
+                      </p>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {remediationOutcomeReview.accepted_count}
+                        </p>
+                        <p className="text-slate-500">aceptadas</p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {remediationOutcomeReview.blocked_count}
+                        </p>
+                        <p className="text-slate-500">bloqueadas</p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {remediationOutcomeReview.regression_count}
+                        </p>
+                        <p className="text-slate-500">regresiones</p>
+                      </div>
+                    </div>
+                    {remediationOutcomeReview.latest_outcome.degraded_cases.length ? (
+                      <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-800">
+                        Degradados:{" "}
+                        {remediationOutcomeReview.latest_outcome.degraded_cases.join(", ")}
+                      </p>
+                    ) : null}
+                    {remediationOutcomeReview.next_actions[0] ? (
+                      <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                        {remediationOutcomeReview.next_actions[0]}
+                      </p>
                     ) : null}
                   </div>
                 ) : null}

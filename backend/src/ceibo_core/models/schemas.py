@@ -889,6 +889,38 @@ class EvaluationRemediationApplyRequest(BaseModel):
         return value
 
 
+class EvaluationRemediationOutcome(BaseModel):
+    outcome_id: str = Field(default_factory=lambda: str(uuid4()))
+    case_id: str
+    status: str
+    accepted: bool = False
+    before_run_id: str
+    after_run_id: str | None = None
+    before_score: int = Field(ge=0, le=100)
+    after_score: int | None = Field(default=None, ge=0, le=100)
+    score_delta: int | None = None
+    case_before_passed: bool | None = None
+    case_after_passed: bool | None = None
+    improved_cases: list[str] = Field(default_factory=list)
+    degraded_cases: list[str] = Field(default_factory=list)
+    unchanged_failed_cases: list[str] = Field(default_factory=list)
+    recommendation: str
+    next_actions: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class EvaluationRemediationOutcomeReview(BaseModel):
+    available: bool
+    summary: str
+    latest_outcome: EvaluationRemediationOutcome | None = None
+    outcomes: list[EvaluationRemediationOutcome] = Field(default_factory=list)
+    accepted_count: int = 0
+    blocked_count: int = 0
+    regression_count: int = 0
+    pending_count: int = 0
+    next_actions: list[str] = Field(default_factory=list)
+
+
 class EvaluationRemediationApplyResponse(BaseModel):
     applied: bool
     case_id: str
@@ -901,6 +933,7 @@ class EvaluationRemediationApplyResponse(BaseModel):
     case_before_passed: bool | None = None
     case_after_passed: bool | None = None
     promotable: bool = False
+    outcome: EvaluationRemediationOutcome | None = None
     next_actions: list[str] = Field(default_factory=list)
 
 

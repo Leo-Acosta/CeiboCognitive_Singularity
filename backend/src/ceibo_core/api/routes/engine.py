@@ -13,6 +13,7 @@ from ceibo_core.models.schemas import (
     EngineStatus,
     EvaluationRemediationApplyRequest,
     EvaluationRemediationApplyResponse,
+    EvaluationRemediationOutcomeReview,
     EvaluationRemediationPlan,
     EvaluationSuiteReport,
     EvaluationTrainingGate,
@@ -97,6 +98,14 @@ async def evaluation_training_gate() -> EvaluationTrainingGate:
 @router.get("/evaluations/remediation", response_model=EvaluationRemediationPlan)
 async def evaluation_remediation_plan() -> EvaluationRemediationPlan:
     return evaluation_harness_service.remediation_plan()
+
+
+@router.get(
+    "/evaluations/remediation/outcomes",
+    response_model=EvaluationRemediationOutcomeReview,
+)
+async def evaluation_remediation_outcomes() -> EvaluationRemediationOutcomeReview:
+    return evaluation_harness_service.remediation_outcomes()
 
 
 @router.post(
