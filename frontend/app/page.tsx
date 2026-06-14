@@ -91,6 +91,64 @@ type LearningEventResponse = {
   };
 };
 
+type TrainingDatasetStats = {
+  dataset_path: string;
+  total_examples: number;
+  tag_counts: Record<string, number>;
+  rating_counts: Record<string, number>;
+  source_counts: Record<string, number>;
+  last_updated: string | null;
+};
+
+type DatasetCurationIssue = {
+  line_number: number | null;
+  example_id: string | null;
+  severity: string;
+  code: string;
+  message: string;
+};
+
+type CuratedTrainingExample = {
+  example_id: string;
+  instruction: string;
+  response: string;
+  rating: LearningRating | null;
+  quality_score: number;
+  quality_notes: string[];
+};
+
+type DatasetCurationReport = {
+  source_path: string;
+  output_path: string | null;
+  parsed_examples: number;
+  kept_examples: number;
+  dropped_examples: number;
+  invalid_lines: number;
+  duplicate_examples: number;
+  average_score: number;
+  score_buckets: Record<string, number>;
+  issues: DatasetCurationIssue[];
+  preview_examples: CuratedTrainingExample[];
+};
+
+type LearningCurationReview = {
+  stats: TrainingDatasetStats;
+  curation: DatasetCurationReport;
+  readiness: {
+    ready: boolean;
+    level: string;
+    usable_examples: number;
+    required_examples: number;
+    corrected_examples: number;
+    good_examples: number;
+    bad_examples: number;
+    average_score: number;
+    blockers: string[];
+    next_actions: string[];
+  };
+  recommended_min_score: number;
+};
+
 type CoreStatus = {
   environment: string;
   agents_online: number;
@@ -437,8 +495,12 @@ export default function Home() {
   const [lastExchange, setLastExchange] = useState<LastExchange | null>(null);
   const [learningCorrection, setLearningCorrection] = useState("");
   const [learningMessage, setLearningMessage] = useState("Todavia no guardaste feedback.");
+  const [learningCuration, setLearningCuration] = useState<LearningCurationReview | null>(null);
+  const [curationMessage, setCurationMessage] = useState("Sin revision de dataset todavia.");
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
+  const [isReviewingCuration, setIsReviewingCuration] = useState(false);
+  const [isExportingCuration, setIsExportingCuration] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
@@ -471,6 +533,7 @@ export default function Home() {
     void refreshStatus();
     setVoiceSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
     void refreshVoiceStatus();
+    void reviewLearningCuration();
   }, []);
 
   useEffect(() => {
@@ -521,6 +584,61 @@ export default function Home() {
       }
     } catch {
       setVoiceStatus(null);
+    }
+  }
+
+  async function reviewLearningCuration() {
+    setIsReviewingCuration(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/curate/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ min_score: 60 }),
+      });
+      if (!response.ok) {
+        throw new Error(`Curation review responded ${response.status}`);
+      }
+      const data = (await response.json()) as LearningCurationReview;
+      setLearningCuration(data);
+      setCurationMessage(
+        `${data.curation.kept_examples}/${data.stats.total_examples} ejemplos utiles. ${data.readiness.level}.`
+      );
+      setConnection("ready");
+    } catch {
+      setLearningCuration(null);
+      setCurationMessage("No pude revisar el dataset local.");
+      setConnection("offline");
+    } finally {
+      setIsReviewingCuration(false);
+    }
+  }
+
+  async function exportLearningCuration() {
+    setIsExportingCuration(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/curate/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ min_score: 60 }),
+      });
+      if (!response.ok) {
+        throw new Error(`Curation export responded ${response.status}`);
+      }
+      const data = (await response.json()) as DatasetCurationReport;
+      setCurationMessage(
+        `Dataset curado exportado: ${data.kept_examples} ejemplos en ${data.output_path ?? "archivo local"}.`
+      );
+      addHistory({
+        kind: "learning",
+        title: "dataset curado",
+        detail: `${data.kept_examples} ejemplos exportados`,
+      });
+      void reviewLearningCuration();
+    } catch {
+      setCurationMessage("No pude exportar el dataset curado.");
+      setConnection("offline");
+    } finally {
+      setIsExportingCuration(false);
     }
   }
 
@@ -961,6 +1079,7 @@ export default function Home() {
         detail: data.warnings.length ? `${data.summary} ${data.warnings.join(" | ")}` : data.summary,
       });
       void refreshCognition();
+      void reviewLearningCuration();
     } catch {
       setLearningMessage("No pude guardar el feedback en el dataset local.");
       setConnection("offline");
@@ -1529,6 +1648,135 @@ export default function Home() {
                   corregida para alimentar el dataset local.
                 </p>
               )}
+            </div>
+
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Sprint 32
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Learning Curation v1
+                  </h2>
+                </div>
+                <Sparkles className="h-5 w-5 text-sky-700" />
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {learningCuration ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Utiles
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-slate-950">
+                          {learningCuration.curation.kept_examples}/{learningCuration.stats.total_examples}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Calidad
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-slate-950">
+                          {learningCuration.curation.average_score}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`rounded-md border px-3 py-2 text-sm ${
+                        learningCuration.readiness.ready
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : learningCuration.readiness.usable_examples >= 5
+                            ? "border-sky-200 bg-sky-50 text-sky-700"
+                            : "border-amber-200 bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      <p className="font-semibold">{learningCuration.readiness.level}</p>
+                      <p className="mt-1 text-xs leading-5">
+                        {learningCuration.readiness.usable_examples}/
+                        {learningCuration.readiness.required_examples} para preflight de entrenamiento.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-center">
+                        <p className="text-xs text-slate-500">good</p>
+                        <p className="font-semibold text-slate-800">
+                          {learningCuration.readiness.good_examples}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-center">
+                        <p className="text-xs text-slate-500">corrected</p>
+                        <p className="font-semibold text-slate-800">
+                          {learningCuration.readiness.corrected_examples}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-center">
+                        <p className="text-xs text-slate-500">bad</p>
+                        <p className="font-semibold text-slate-800">
+                          {learningCuration.readiness.bad_examples}
+                        </p>
+                      </div>
+                    </div>
+
+                    {learningCuration.readiness.blockers.length ? (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                        {learningCuration.readiness.blockers[0]}
+                      </div>
+                    ) : null}
+
+                    {learningCuration.curation.preview_examples.length ? (
+                      <div className="space-y-2">
+                        {learningCuration.curation.preview_examples.slice(0, 2).map((example) => (
+                          <div
+                            key={example.example_id}
+                            className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="truncate text-xs font-semibold text-slate-700">
+                                {example.instruction}
+                              </p>
+                              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">
+                                {example.quality_score}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                    Revisa el dataset para ver ejemplos utiles, duplicados, calidad y preparacion.
+                  </p>
+                )}
+
+                <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
+                  {isReviewingCuration || isExportingCuration ? "Procesando dataset..." : curationMessage}
+                </p>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void reviewLearningCuration()}
+                    disabled={isReviewingCuration || isExportingCuration}
+                    className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-sky-300 hover:bg-white hover:text-sky-900 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Revisar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void exportLearningCuration()}
+                    disabled={isReviewingCuration || isExportingCuration || !learningCuration?.curation.kept_examples}
+                    className="rounded-md bg-slate-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    Exportar curado
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center justify-between gap-3">

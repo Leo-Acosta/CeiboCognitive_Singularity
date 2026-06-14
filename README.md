@@ -103,6 +103,7 @@ API:
 - `POST /api/v1/engine/training/feedback`
 - `POST /api/v1/engine/training/learning-event`
 - `GET /api/v1/engine/training/stats`
+- `POST /api/v1/engine/training/curate/review`
 - `POST /api/v1/engine/training/curate/preview`
 - `POST /api/v1/engine/training/curate/export`
 - `GET /api/v1/engine/teacher/status`

@@ -19,6 +19,7 @@ services:
       - ./backend/src:/app/src
       - ./backend/migrations:/app/migrations
       - ./backend/alembic.ini:/app/alembic.ini
+      - ./training:/app/training
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
     command: sh -c "alembic upgrade head && uvicorn ceibo_core.main:app --host 0.0.0.0 --port 8000"

@@ -20,7 +20,13 @@ from ceibo_core.models.schemas import (
 
 class TrainingDataService:
     def project_root(self) -> Path:
-        return Path(__file__).resolve().parents[4]
+        current = Path(__file__).resolve()
+        for parent in current.parents:
+            if (parent / "docker-compose.yml").exists():
+                return parent
+            if (parent / "pyproject.toml").exists() and parent.name == "app":
+                return parent
+        return current.parents[4]
 
     def dataset_path(self) -> Path:
         configured = Path(settings.ceibo_training_dataset_path)

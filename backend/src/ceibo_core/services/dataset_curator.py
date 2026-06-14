@@ -13,9 +13,13 @@ from ceibo_core.models.schemas import (
     DatasetCurationReport,
     DatasetCurationRequest,
     DatasetIssueSeverity,
+    LearningCurationReadiness,
+    LearningCurationReview,
+    TrainingDatasetStats,
     TrainingExample,
     TrainingFeedbackRating,
 )
+from ceibo_core.services.training_data import training_data_service
 
 
 WHITESPACE_PATTERN = re.compile(r"\s+")
@@ -31,10 +35,16 @@ PLACEHOLDER_PATTERNS = (
 
 class DatasetCuratorService:
     def project_root(self) -> Path:
-        return Path(__file__).resolve().parents[4]
+        current = Path(__file__).resolve()
+        for parent in current.parents:
+            if (parent / "docker-compose.yml").exists():
+                return parent
+            if (parent / "pyproject.toml").exists() and parent.name == "app":
+                return parent
+        return current.parents[4]
 
     def default_source_path(self) -> Path:
-        return self.project_root() / "training" / "datasets" / "ceibo_instructions.jsonl"
+        return training_data_service.dataset_path()
 
     def default_output_path(self, source_path: Path) -> Path:
         return source_path.with_name(f"{source_path.stem}.curated.jsonl")
@@ -137,6 +147,21 @@ class DatasetCuratorService:
             score_buckets=dict(score_buckets),
             issues=issues[:100],
             preview_examples=curated[:5],
+        )
+
+    async def review(
+        self,
+        request: DatasetCurationRequest | None = None,
+    ) -> LearningCurationReview:
+        request = request or DatasetCurationRequest()
+        stats = await training_data_service.stats()
+        curation = self.curate(request, write_output=False)
+        readiness = self._readiness(stats, curation)
+        return LearningCurationReview(
+            stats=stats,
+            curation=curation,
+            readiness=readiness,
+            recommended_min_score=request.min_score,
         )
 
     def _resolve_project_path(self, configured_path: str | None, default_path: Path) -> Path:
@@ -345,6 +370,61 @@ class DatasetCuratorService:
         if score < 80:
             return "60-79"
         return "80-100"
+
+    def _readiness(
+        self,
+        stats: TrainingDatasetStats,
+        curation: DatasetCurationReport,
+    ) -> LearningCurationReadiness:
+        good_examples = stats.rating_counts.get("good", 0)
+        corrected_examples = stats.rating_counts.get("corrected", 0)
+        bad_examples = stats.rating_counts.get("bad", 0)
+        usable_examples = curation.kept_examples
+        required_examples = 25
+        blockers: list[str] = []
+        next_actions: list[str] = []
+
+        if usable_examples < 5:
+            blockers.append("Muy pocos ejemplos curados para entrenar.")
+            next_actions.append("Guardar mas respuestas buenas o corregidas desde el Workbench.")
+        elif usable_examples < required_examples:
+            blockers.append("Dataset util, pero todavia chico para entrenamiento estable.")
+            next_actions.append("Apuntar a 25 ejemplos curados antes de QLoRA local.")
+
+        if corrected_examples < 3:
+            blockers.append("Faltan correcciones humanas; son las mas valiosas para ajustar conducta.")
+            next_actions.append("Corregir respuestas flojas en vez de solo marcarlas como malas.")
+
+        if curation.duplicate_examples:
+            next_actions.append("Revisar duplicados descartados por curacion.")
+
+        if curation.average_score < 70 and curation.parsed_examples:
+            blockers.append("La calidad promedio del dataset curado todavia es baja.")
+            next_actions.append("Subir calidad con respuestas ideales mas completas.")
+
+        if usable_examples >= required_examples and corrected_examples >= 3 and curation.average_score >= 70:
+            level = "ready_for_training_preview"
+            ready = True
+            next_actions.append("Ejecutar preflight QLoRA antes de cualquier entrenamiento real.")
+        elif usable_examples >= 5:
+            level = "curation_ready"
+            ready = False
+        else:
+            level = "collecting_examples"
+            ready = False
+
+        return LearningCurationReadiness(
+            ready=ready,
+            level=level,
+            usable_examples=usable_examples,
+            required_examples=required_examples,
+            corrected_examples=corrected_examples,
+            good_examples=good_examples,
+            bad_examples=bad_examples,
+            average_score=curation.average_score,
+            blockers=blockers,
+            next_actions=list(dict.fromkeys(next_actions)),
+        )
 
 
 dataset_curator_service = DatasetCuratorService()

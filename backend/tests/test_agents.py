@@ -77,7 +77,7 @@ from ceibo_core.services.orchestration import orchestration_service
 from ceibo_core.services.singularity_index import SingularityIndexService
 from ceibo_core.services.tasks import task_store
 from ceibo_core.services.teacher_agent import TeacherAgentService
-from ceibo_core.services.training_data import TrainingDataService
+from ceibo_core.services.training_data import TrainingDataService, training_data_service
 from ceibo_core.services.training_runner import TrainingRunnerService
 from ceibo_core.services.voice_control import VoiceControlService
 
@@ -1042,6 +1042,51 @@ def test_dataset_curator_scores_deduplicates_and_exports_jsonl():
     finally:
         source_path.unlink(missing_ok=True)
         output_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_learning_curation_review_reports_readiness(monkeypatch):
+    service = DatasetCuratorService()
+    dataset_path = Path(".tmp-tests") / f"learning_curation_{uuid4()}.jsonl"
+    monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
+
+    records = [
+        {
+            "instruction": f"Explica decision tecnica {index}",
+            "response": "Respuesta ideal con suficiente detalle para entrenar comportamiento.",
+            "tags": ["learning_loop", "workbench"],
+            "rating": "corrected" if index < 3 else "good",
+            "source": "workbench",
+        }
+        for index in range(6)
+    ]
+    records.append(
+        {
+            "instruction": "Respuesta mala",
+            "response": "No sirve para entrenar.",
+            "rating": "bad",
+            "source": "workbench",
+        }
+    )
+
+    try:
+        dataset_path.parent.mkdir(exist_ok=True)
+        dataset_path.write_text(
+            "\n".join(json.dumps(record) for record in records),
+            encoding="utf-8",
+        )
+
+        review = await service.review(DatasetCurationRequest(min_score=60))
+
+        assert review.stats.total_examples == 7
+        assert review.curation.kept_examples == 6
+        assert review.readiness.usable_examples == 6
+        assert review.readiness.corrected_examples == 3
+        assert review.readiness.level == "curation_ready"
+        assert review.readiness.ready is False
+        assert "Apuntar a 25 ejemplos curados antes de QLoRA local." in review.readiness.next_actions
+    finally:
+        dataset_path.unlink(missing_ok=True)
 
 
 def test_training_runner_builds_qlora_preflight_command():

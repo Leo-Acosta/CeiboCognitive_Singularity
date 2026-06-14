@@ -14,6 +14,7 @@ from ceibo_core.models.schemas import (
     EvaluationSuiteReport,
     LearningEventRequest,
     LearningEventResponse,
+    LearningCurationReview,
     DatasetCurationReport,
     DatasetCurationRequest,
     ModelCandidate,
@@ -242,6 +243,16 @@ async def append_learning_event(request: LearningEventRequest) -> LearningEventR
 @router.get("/training/stats", response_model=TrainingDatasetStats)
 async def training_dataset_stats() -> TrainingDatasetStats:
     return await training_data_service.stats()
+
+
+@router.post("/training/curate/review", response_model=LearningCurationReview)
+async def review_training_dataset_curation(
+    request: DatasetCurationRequest,
+) -> LearningCurationReview:
+    try:
+        return await dataset_curator_service.review(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/training/curate/preview", response_model=DatasetCurationReport)

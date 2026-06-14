@@ -751,6 +751,26 @@ class DatasetCurationReport(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class LearningCurationReadiness(BaseModel):
+    ready: bool
+    level: str
+    usable_examples: int
+    required_examples: int
+    corrected_examples: int
+    good_examples: int
+    bad_examples: int
+    average_score: float
+    blockers: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+
+
+class LearningCurationReview(BaseModel):
+    stats: TrainingDatasetStats
+    curation: DatasetCurationReport
+    readiness: LearningCurationReadiness
+    recommended_min_score: int = 60
+
+
 class TeacherStatus(BaseModel):
     provider: str
     base_url: str
