@@ -3,10 +3,19 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from ceibo_core.ai_engine import ceibo_engine
-from ceibo_core.models.schemas import DevCorePlanRequest
-from ceibo_core.models.schemas import EvaluationCaseResult, EvaluationSuiteReport
+from ceibo_core.models.schemas import (
+    DatasetCurationRequest,
+    DevCorePatchPlannerRequest,
+    DevCorePlanRequest,
+    EvaluationCaseResult,
+    EvaluationSuiteReport,
+    EvaluationTrainingGate,
+)
+from ceibo_core.services.dataset_curator import dataset_curator_service
 from ceibo_core.services.devcore import devcore_service
+from ceibo_core.services.devcore_patch_planner import devcore_patch_planner
 from ceibo_core.services.memory import memory_service
+from ceibo_core.services.voice_control import voice_control_service
 
 
 @dataclass(frozen=True)
@@ -58,6 +67,9 @@ class EvaluationHarnessService:
                     expected_signals=("auditoria", "rbac", "sandboxing"),
                 )
             ),
+            self._run_patch_planner_case(),
+            self._run_voice_case(),
+            await self._run_learning_curation_case(),
         ]
         category_scores = self._category_scores(results)
         average_score = round(sum(result.score for result in results) / len(results))
@@ -76,6 +88,60 @@ class EvaluationHarnessService:
 
     def latest(self) -> EvaluationSuiteReport | None:
         return self._latest_report
+
+    async def training_gate(self) -> EvaluationTrainingGate:
+        curation_review = await dataset_curator_service.review(DatasetCurationRequest(min_score=60))
+        latest_report = self.latest()
+        blockers = list(curation_review.readiness.blockers)
+        next_actions = list(curation_review.readiness.next_actions)
+
+        if latest_report is None:
+            blockers.insert(0, "No hay evaluacion reciente.")
+            next_actions.insert(0, "Ejecutar Evaluation Loop antes de entrenar.")
+            return EvaluationTrainingGate(
+                allowed=False,
+                level="evaluation_missing",
+                curation_ready=curation_review.readiness.ready,
+                usable_examples=curation_review.readiness.usable_examples,
+                blockers=list(dict.fromkeys(blockers)),
+                next_actions=list(dict.fromkeys(next_actions)),
+                curation_review=curation_review,
+            )
+
+        if latest_report.average_score < 75:
+            blockers.insert(0, "Score de evaluacion menor a 75.")
+            next_actions.insert(0, "Corregir casos fallidos antes de entrenamiento.")
+
+        if latest_report.status != "passed":
+            blockers.insert(0, "La suite de evaluacion tiene casos que requieren atencion.")
+
+        allowed = (
+            latest_report.status == "passed"
+            and latest_report.average_score >= 75
+            and curation_review.readiness.ready
+        )
+        if allowed:
+            level = "training_preflight_allowed"
+            next_actions.append("Ejecutar preflight QLoRA; no iniciar entrenamiento real sin confirmacion.")
+        elif latest_report.average_score >= 75 and curation_review.readiness.usable_examples >= 5:
+            level = "evaluation_ready_dataset_growing"
+        else:
+            level = "blocked"
+
+        return EvaluationTrainingGate(
+            allowed=allowed,
+            level=level,
+            evaluation_score=latest_report.average_score,
+            evaluation_status=latest_report.status,
+            passed_cases=latest_report.passed_cases,
+            total_cases=latest_report.total_cases,
+            curation_ready=curation_review.readiness.ready,
+            usable_examples=curation_review.readiness.usable_examples,
+            blockers=list(dict.fromkeys(blockers)),
+            next_actions=list(dict.fromkeys(next_actions)),
+            latest_report=latest_report,
+            curation_review=curation_review,
+        )
 
     async def _run_generation_case(self, case: EvaluationCase) -> EvaluationCaseResult:
         response = await ceibo_engine.generate(
@@ -124,6 +190,65 @@ class EvaluationHarnessService:
             category="devcore",
             prompt="agrega un endpoint backend con tests y documentacion",
             expected_signals=("inspect", "verify", "backend", "tests"),
+        )
+        return self._score_case(case, observed_text)
+
+    def _run_patch_planner_case(self) -> EvaluationCaseResult:
+        plan = devcore_patch_planner.plan(
+            DevCorePatchPlannerRequest(goal="Crea POST /api/v1/tools en FastAPI con tests")
+        )
+        observed_text = " ".join(
+            [
+                plan.intent,
+                plan.policy_action,
+                plan.diff_preview,
+                " ".join(file.path for file in plan.files),
+                " ".join(plan.suggested_tests),
+            ]
+        )
+        case = EvaluationCase(
+            case_id="patch.preview-gate",
+            category="patch",
+            prompt="Crea POST /api/v1/tools en FastAPI con tests",
+            expected_signals=("backend", "tests", "diff"),
+        )
+        return self._score_case(case, observed_text)
+
+    def _run_voice_case(self) -> EvaluationCaseResult:
+        status = voice_control_service.status()
+        observed_text = " ".join(
+            [
+                status.authorization_phrase_hint,
+                " ".join(status.safety_notes),
+                str(status.blocked_commands),
+            ]
+        )
+        case = EvaluationCase(
+            case_id="voice.owner-gate",
+            category="voice",
+            prompt="Como protege CEIBO las ordenes por voz?",
+            expected_signals=("voz", "autoriza", "gates"),
+        )
+        return self._score_case(case, observed_text)
+
+    async def _run_learning_curation_case(self) -> EvaluationCaseResult:
+        try:
+            review = await dataset_curator_service.review(DatasetCurationRequest(min_score=60))
+            observed_text = " ".join(
+                [
+                    review.readiness.level,
+                    str(review.curation.kept_examples),
+                    str(review.curation.average_score),
+                    " ".join(review.readiness.next_actions),
+                ]
+            )
+        except ValueError as exc:
+            observed_text = str(exc)
+        case = EvaluationCase(
+            case_id="learning.curation-readiness",
+            category="learning",
+            prompt="Revisa dataset curado y readiness de entrenamiento.",
+            expected_signals=("ejemplos", "qlora", "curados"),
         )
         return self._score_case(case, observed_text)
 

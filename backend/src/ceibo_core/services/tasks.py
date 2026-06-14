@@ -33,7 +33,7 @@ class TaskStore:
             created_at=response.created_at,
         )
         self._fallback_tasks.appendleft(record)
-        if not settings.persistence_enabled:
+        if not settings.persistence_enabled or db is None:
             return
         try:
             db.add(
@@ -53,7 +53,7 @@ class TaskStore:
             logger.warning("task_append_failed", error=str(exc))
 
     async def recent_tasks(self, db: AsyncSession, limit: int = 10) -> list[TaskRecord]:
-        if not settings.persistence_enabled:
+        if not settings.persistence_enabled or db is None:
             return list(self._fallback_tasks)[:limit]
         try:
             result = await db.execute(

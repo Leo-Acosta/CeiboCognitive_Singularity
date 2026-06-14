@@ -1207,11 +1207,42 @@ async def test_singularity_index_captures_local_history(monkeypatch):
 async def test_evaluation_harness_runs_core_suites():
     report = await EvaluationHarnessService().run()
 
-    assert report.total_cases == 6
+    assert report.total_cases == 9
     assert 0 <= report.average_score <= 100
-    assert {"reasoning", "rag", "security", "devcore"}.issubset(report.category_scores)
+    assert {"reasoning", "rag", "security", "devcore", "patch", "voice", "learning"}.issubset(report.category_scores)
     assert report.results[0].expected_signals
     assert report.status in {"passed", "needs_attention"}
+
+
+@pytest.mark.asyncio
+async def test_evaluation_training_gate_blocks_without_recent_eval(monkeypatch):
+    service = EvaluationHarnessService()
+    dataset_path = Path(".tmp-tests") / f"evaluation_gate_{uuid4()}.jsonl"
+    monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
+
+    try:
+        dataset_path.parent.mkdir(exist_ok=True)
+        dataset_path.write_text(
+            json.dumps(
+                {
+                    "instruction": "Explica CEIBO CORE con detalle suficiente",
+                    "response": "CEIBO CORE integra chat, memoria, seguridad, aprendizaje y evaluacion.",
+                    "rating": "good",
+                    "source": "workbench",
+                    "tags": ["learning_loop"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        gate = await service.training_gate()
+
+        assert gate.allowed is False
+        assert gate.level == "evaluation_missing"
+        assert "No hay evaluacion reciente." in gate.blockers
+        assert gate.usable_examples == 1
+    finally:
+        dataset_path.unlink(missing_ok=True)
 
 
 @pytest.mark.asyncio

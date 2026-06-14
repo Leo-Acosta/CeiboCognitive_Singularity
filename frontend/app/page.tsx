@@ -149,6 +149,44 @@ type LearningCurationReview = {
   recommended_min_score: number;
 };
 
+type EvaluationCaseResult = {
+  case_id: string;
+  category: string;
+  prompt: string;
+  passed: boolean;
+  score: number;
+  expected_signals: string[];
+  observed_signals: string[];
+  response_preview: string;
+  notes: string[];
+};
+
+type EvaluationSuiteReport = {
+  run_id: string;
+  status: string;
+  total_cases: number;
+  passed_cases: number;
+  average_score: number;
+  category_scores: Record<string, number>;
+  results: EvaluationCaseResult[];
+  created_at: string;
+};
+
+type EvaluationTrainingGate = {
+  allowed: boolean;
+  level: string;
+  evaluation_score: number | null;
+  evaluation_status: string;
+  passed_cases: number;
+  total_cases: number;
+  curation_ready: boolean;
+  usable_examples: number;
+  blockers: string[];
+  next_actions: string[];
+  latest_report: EvaluationSuiteReport | null;
+  curation_review: LearningCurationReview | null;
+};
+
 type CoreStatus = {
   environment: string;
   agents_online: number;
@@ -497,10 +535,14 @@ export default function Home() {
   const [learningMessage, setLearningMessage] = useState("Todavia no guardaste feedback.");
   const [learningCuration, setLearningCuration] = useState<LearningCurationReview | null>(null);
   const [curationMessage, setCurationMessage] = useState("Sin revision de dataset todavia.");
+  const [evaluationReport, setEvaluationReport] = useState<EvaluationSuiteReport | null>(null);
+  const [evaluationGate, setEvaluationGate] = useState<EvaluationTrainingGate | null>(null);
+  const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
   const [isReviewingCuration, setIsReviewingCuration] = useState(false);
   const [isExportingCuration, setIsExportingCuration] = useState(false);
+  const [isRunningEvaluation, setIsRunningEvaluation] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
@@ -534,6 +576,7 @@ export default function Home() {
     setVoiceSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
     void refreshVoiceStatus();
     void reviewLearningCuration();
+    void refreshEvaluationGate();
   }, []);
 
   useEffect(() => {
@@ -639,6 +682,55 @@ export default function Home() {
       setConnection("offline");
     } finally {
       setIsExportingCuration(false);
+    }
+  }
+
+  async function refreshEvaluationGate() {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/evaluations/training-gate`);
+      if (!response.ok) {
+        throw new Error(`Evaluation gate responded ${response.status}`);
+      }
+      const data = (await response.json()) as EvaluationTrainingGate;
+      setEvaluationGate(data);
+      if (data.latest_report) {
+        setEvaluationReport(data.latest_report);
+      }
+      setEvaluationMessage(
+        data.evaluation_score === null
+          ? "Ejecuta la suite antes de entrenar."
+          : `${data.evaluation_score}/100 - ${data.level}`
+      );
+    } catch {
+      setEvaluationGate(null);
+      setEvaluationMessage("No pude leer el gate de evaluacion.");
+    }
+  }
+
+  async function runEvaluationSuite() {
+    setIsRunningEvaluation(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/evaluations/run`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error(`Evaluation run responded ${response.status}`);
+      }
+      const data = (await response.json()) as EvaluationSuiteReport;
+      setEvaluationReport(data);
+      setEvaluationMessage(`${data.average_score}/100 - ${data.status}`);
+      addHistory({
+        kind: "learning",
+        title: "evaluation loop",
+        detail: `${data.passed_cases}/${data.total_cases} casos - ${data.average_score}/100`,
+      });
+      void refreshEvaluationGate();
+      void refreshCognition();
+    } catch {
+      setEvaluationMessage("No pude ejecutar la evaluacion local.");
+      setConnection("offline");
+    } finally {
+      setIsRunningEvaluation(false);
     }
   }
 
@@ -1776,6 +1868,112 @@ export default function Home() {
                     Exportar curado
                   </button>
                 </div>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Sprint 33
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Evaluation Loop v1
+                  </h2>
+                </div>
+                <ShieldCheck className="h-5 w-5 text-sky-700" />
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {evaluationReport ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Score
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-slate-950">
+                          {evaluationReport.average_score}/100
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Casos
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-slate-950">
+                          {evaluationReport.passed_cases}/{evaluationReport.total_cases}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`rounded-md border px-3 py-2 text-sm ${
+                        evaluationReport.status === "passed"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-amber-200 bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      <p className="font-semibold">{evaluationReport.status}</p>
+                      <p className="mt-1 text-xs leading-5">
+                        {Object.entries(evaluationReport.category_scores)
+                          .map(([category, score]) => `${category} ${score}`)
+                          .join(" | ")}
+                      </p>
+                    </div>
+
+                    {evaluationReport.results.filter((result) => !result.passed).length ? (
+                      <div className="space-y-2">
+                        {evaluationReport.results
+                          .filter((result) => !result.passed)
+                          .slice(0, 2)
+                          .map((result) => (
+                            <div
+                              key={result.case_id}
+                              className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"
+                            >
+                              <p className="font-semibold">{result.case_id}</p>
+                              <p>{result.notes[0] ?? "Caso necesita revision."}</p>
+                            </div>
+                          ))}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                    Ejecuta la suite para medir razonamiento, seguridad, memoria, patch, voz y
+                    aprendizaje antes de entrenar.
+                  </p>
+                )}
+
+                {evaluationGate ? (
+                  <div
+                    className={`rounded-md border px-3 py-2 text-xs leading-5 ${
+                      evaluationGate.allowed
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-red-200 bg-red-50 text-red-700"
+                    }`}
+                  >
+                    <p className="font-semibold">{evaluationGate.level}</p>
+                    <p className="mt-1">
+                      Gate entrenamiento: {evaluationGate.allowed ? "permitido" : "bloqueado"}.
+                    </p>
+                    {evaluationGate.blockers[0] ? <p className="mt-1">{evaluationGate.blockers[0]}</p> : null}
+                  </div>
+                ) : null}
+
+                <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
+                  {isRunningEvaluation ? "Ejecutando evaluacion..." : evaluationMessage}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => void runEvaluationSuite()}
+                  disabled={isRunningEvaluation}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {isRunningEvaluation ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                  Evaluar CEIBO
+                </button>
               </div>
             </div>
 

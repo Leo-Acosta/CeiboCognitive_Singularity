@@ -347,7 +347,7 @@ class ModelRegistryService:
                 detail=latest_eval.run_id if latest_eval else "sin evaluation run",
             )
         )
-        if latest_eval is not None:
+        if request.require_evaluation and latest_eval is not None:
             checks.append(
                 PromotionGateCheck(
                     name="evaluation_score",

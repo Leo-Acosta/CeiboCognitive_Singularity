@@ -839,6 +839,21 @@ class EvaluationSuiteReport(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class EvaluationTrainingGate(BaseModel):
+    allowed: bool
+    level: str
+    evaluation_score: int | None = None
+    evaluation_status: str = "missing"
+    passed_cases: int = 0
+    total_cases: int = 0
+    curation_ready: bool = False
+    usable_examples: int = 0
+    blockers: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    latest_report: EvaluationSuiteReport | None = None
+    curation_review: LearningCurationReview | None = None
+
+
 class TrainingRunStatus(StrEnum):
     READY = "ready"
     BLOCKED = "blocked"

@@ -12,6 +12,7 @@ from ceibo_core.models.schemas import (
     EngineGenerateResponse,
     EngineStatus,
     EvaluationSuiteReport,
+    EvaluationTrainingGate,
     LearningEventRequest,
     LearningEventResponse,
     LearningCurationReview,
@@ -80,6 +81,14 @@ async def run_evaluation_suite(
 @router.get("/evaluations/latest", response_model=EvaluationSuiteReport | None)
 async def latest_evaluation_suite() -> EvaluationSuiteReport | None:
     return evaluation_harness_service.latest()
+
+
+@router.get("/evaluations/training-gate", response_model=EvaluationTrainingGate)
+async def evaluation_training_gate() -> EvaluationTrainingGate:
+    try:
+        return await evaluation_harness_service.training_gate()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/generate", response_model=EngineGenerateResponse)
