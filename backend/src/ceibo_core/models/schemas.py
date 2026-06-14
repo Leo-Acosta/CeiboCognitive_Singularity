@@ -937,6 +937,34 @@ class EvaluationRemediationApplyResponse(BaseModel):
     next_actions: list[str] = Field(default_factory=list)
 
 
+class TrainingPromotionEvidence(BaseModel):
+    latest_run_id: str | None = None
+    evaluation_status: str = "missing"
+    evaluation_score: int | None = None
+    passed_cases: int = 0
+    total_cases: int = 0
+    curation_ready: bool = False
+    usable_examples: int = 0
+    corrected_examples: int = 0
+    accepted_outcomes: int = 0
+    regression_outcomes: int = 0
+    pending_outcomes: int = 0
+    blocked_outcomes: int = 0
+
+
+class TrainingPromotionGate(BaseModel):
+    allowed: bool
+    level: str
+    summary: str
+    evidence: TrainingPromotionEvidence
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    latest_report: EvaluationSuiteReport | None = None
+    curation_review: LearningCurationReview | None = None
+    outcome_review: EvaluationRemediationOutcomeReview | None = None
+
+
 class TrainingRunStatus(StrEnum):
     READY = "ready"
     BLOCKED = "blocked"

@@ -19,6 +19,7 @@ from ceibo_core.models.schemas import (
     DevCoreExecutionRequest,
     EvaluationCaseResult,
     EvaluationRemediationApplyRequest,
+    EvaluationRemediationOutcome,
     EvaluationSuiteReport,
     DevCorePatchApplyRequest,
     DevCorePatchChange,
@@ -1549,6 +1550,115 @@ def test_evaluation_remediation_outcomes_handles_missing_history():
     assert "Aplicar una remediacion" in review.next_actions[0]
 
 
+@pytest.mark.asyncio
+async def test_training_promotion_gate_blocks_without_recent_eval(monkeypatch):
+    report_path = Path(".tmp-tests") / f"promotion_missing_eval_{uuid4()}.json"
+    outcome_path = Path(".tmp-tests") / f"promotion_missing_outcomes_{uuid4()}.jsonl"
+    dataset_path = Path(".tmp-tests") / f"promotion_missing_dataset_{uuid4()}.jsonl"
+    service = EvaluationHarnessService(report_path=report_path, outcome_path=outcome_path)
+    monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
+
+    try:
+        _write_training_dataset(dataset_path, total=25, corrected=3)
+
+        gate = await service.training_promotion_gate()
+
+        assert gate.allowed is False
+        assert gate.level == "promotion_blocked"
+        assert "No hay evaluacion reciente." in gate.blockers
+        assert gate.evidence.usable_examples == 25
+    finally:
+        report_path.unlink(missing_ok=True)
+        outcome_path.unlink(missing_ok=True)
+        dataset_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_training_promotion_gate_blocks_regression_outcomes(monkeypatch):
+    report_path = Path(".tmp-tests") / f"promotion_regression_eval_{uuid4()}.json"
+    outcome_path = Path(".tmp-tests") / f"promotion_regression_outcomes_{uuid4()}.jsonl"
+    dataset_path = Path(".tmp-tests") / f"promotion_regression_dataset_{uuid4()}.jsonl"
+    service = EvaluationHarnessService(report_path=report_path, outcome_path=outcome_path)
+    monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
+
+    try:
+        service._save_latest_report(_passed_promotion_report())
+        _write_training_dataset(dataset_path, total=25, corrected=3)
+        outcome_path.parent.mkdir(exist_ok=True)
+        outcome_path.write_text(
+            EvaluationRemediationOutcome(
+                case_id="security.system-control",
+                status="regression",
+                accepted=False,
+                before_run_id="eval-before",
+                after_run_id="eval-after",
+                before_score=90,
+                after_score=88,
+                score_delta=-2,
+                degraded_cases=["security.auditability"],
+                recommendation="Regresion abierta.",
+            ).model_dump_json()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        gate = await service.training_promotion_gate()
+
+        assert gate.allowed is False
+        assert gate.level == "promotion_blocked_needs_evidence"
+        assert "Hay outcomes con regresion abiertos." in gate.blockers
+        assert gate.evidence.regression_outcomes == 1
+    finally:
+        report_path.unlink(missing_ok=True)
+        outcome_path.unlink(missing_ok=True)
+        dataset_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_training_promotion_gate_allows_preflight_with_evidence(monkeypatch):
+    report_path = Path(".tmp-tests") / f"promotion_ready_eval_{uuid4()}.json"
+    outcome_path = Path(".tmp-tests") / f"promotion_ready_outcomes_{uuid4()}.jsonl"
+    dataset_path = Path(".tmp-tests") / f"promotion_ready_dataset_{uuid4()}.jsonl"
+    service = EvaluationHarnessService(report_path=report_path, outcome_path=outcome_path)
+    monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
+
+    try:
+        service._save_latest_report(_passed_promotion_report())
+        _write_training_dataset(dataset_path, total=25, corrected=3)
+        outcome_path.parent.mkdir(exist_ok=True)
+        outcome_path.write_text(
+            EvaluationRemediationOutcome(
+                case_id="security.system-control",
+                status="accepted",
+                accepted=True,
+                before_run_id="eval-before",
+                after_run_id="eval-promotion",
+                before_score=81,
+                after_score=92,
+                score_delta=11,
+                case_before_passed=False,
+                case_after_passed=True,
+                improved_cases=["security.system-control"],
+                recommendation="Caso objetivo paso sin regresiones.",
+            ).model_dump_json()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        gate = await service.training_promotion_gate()
+
+        assert gate.allowed is True
+        assert gate.level == "promotion_preflight_allowed"
+        assert gate.blockers == []
+        assert gate.evidence.evaluation_score == 92
+        assert gate.evidence.accepted_outcomes == 1
+        assert "preflight QLoRA" in gate.next_actions[0]
+    finally:
+        report_path.unlink(missing_ok=True)
+        outcome_path.unlink(missing_ok=True)
+        dataset_path.unlink(missing_ok=True)
+
+
 def _failed_remediation_report() -> EvaluationSuiteReport:
     return EvaluationSuiteReport(
         run_id="eval-remediation",
@@ -1571,6 +1681,67 @@ def _failed_remediation_report() -> EvaluationSuiteReport:
             )
         ],
     )
+
+
+def _passed_promotion_report() -> EvaluationSuiteReport:
+    return EvaluationSuiteReport(
+        run_id="eval-promotion",
+        status="passed",
+        total_cases=3,
+        passed_cases=3,
+        average_score=92,
+        category_scores={"reasoning": 90, "security": 90, "learning": 96},
+        results=[
+            EvaluationCaseResult(
+                case_id="reasoning.training-plan",
+                category="reasoning",
+                prompt="plan",
+                passed=True,
+                score=90,
+                expected_signals=["dataset"],
+                observed_signals=["dataset"],
+                response_preview="dataset qlora",
+            ),
+            EvaluationCaseResult(
+                case_id="security.system-control",
+                category="security",
+                prompt="seguridad",
+                passed=True,
+                score=90,
+                expected_signals=["seguridad"],
+                observed_signals=["seguridad"],
+                response_preview="seguridad politicas agentes",
+            ),
+            EvaluationCaseResult(
+                case_id="learning.curation-readiness",
+                category="learning",
+                prompt="curacion",
+                passed=True,
+                score=96,
+                expected_signals=["ejemplos"],
+                observed_signals=["ejemplos"],
+                response_preview="ejemplos curados qlora",
+            ),
+        ],
+    )
+
+
+def _write_training_dataset(path: Path, total: int, corrected: int) -> None:
+    path.parent.mkdir(exist_ok=True)
+    records = [
+        {
+            "instruction": f"Ejemplo robusto de entrenamiento {index}",
+            "response": (
+                "Respuesta ideal con suficiente detalle tecnico, criterios de seguridad, "
+                "validacion humana y pasos verificables para CEIBO CORE."
+            ),
+            "rating": "corrected" if index < corrected else "good",
+            "source": "test",
+            "tags": ["learning_loop", "promotion_gate"],
+        }
+        for index in range(total)
+    ]
+    path.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
 
 
 def _two_case_remediation_report() -> EvaluationSuiteReport:

@@ -43,6 +43,7 @@ from ceibo_core.models.schemas import (
     TrainingFeedbackRequest,
     TrainingPlanRequest,
     TrainingPlanResponse,
+    TrainingPromotionGate,
     TrainingRunnerReport,
 )
 from ceibo_core.services.audit import audit_trail_service
@@ -297,6 +298,14 @@ async def append_training_feedback(request: TrainingFeedbackRequest) -> Training
 @router.post("/training/learning-event", response_model=LearningEventResponse)
 async def append_learning_event(request: LearningEventRequest) -> LearningEventResponse:
     return await training_data_service.append_learning_event(request)
+
+
+@router.get("/training/promotion-gate", response_model=TrainingPromotionGate)
+async def training_promotion_gate() -> TrainingPromotionGate:
+    try:
+        return await evaluation_harness_service.training_promotion_gate()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/training/stats", response_model=TrainingDatasetStats)

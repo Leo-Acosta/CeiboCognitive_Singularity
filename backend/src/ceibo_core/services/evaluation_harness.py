@@ -23,6 +23,8 @@ from ceibo_core.models.schemas import (
     EvaluationSuiteReport,
     EvaluationTrainingGate,
     LearningEventRequest,
+    TrainingPromotionEvidence,
+    TrainingPromotionGate,
     TrainingExampleRequest,
     TrainingFeedbackRating,
 )
@@ -410,6 +412,90 @@ class EvaluationHarnessService:
             next_actions=list(dict.fromkeys(next_actions)),
             latest_report=latest_report,
             curation_review=curation_review,
+        )
+
+    async def training_promotion_gate(self) -> TrainingPromotionGate:
+        curation_review = await dataset_curator_service.review(DatasetCurationRequest(min_score=60))
+        latest_report = self.latest()
+        outcome_review = self.remediation_outcomes()
+        blockers = list(curation_review.readiness.blockers)
+        warnings: list[str] = []
+        next_actions = list(curation_review.readiness.next_actions)
+
+        evidence = TrainingPromotionEvidence(
+            latest_run_id=latest_report.run_id if latest_report else None,
+            evaluation_status=latest_report.status if latest_report else "missing",
+            evaluation_score=latest_report.average_score if latest_report else None,
+            passed_cases=latest_report.passed_cases if latest_report else 0,
+            total_cases=latest_report.total_cases if latest_report else 0,
+            curation_ready=curation_review.readiness.ready,
+            usable_examples=curation_review.readiness.usable_examples,
+            corrected_examples=curation_review.readiness.corrected_examples,
+            accepted_outcomes=outcome_review.accepted_count,
+            regression_outcomes=outcome_review.regression_count,
+            pending_outcomes=outcome_review.pending_count,
+            blocked_outcomes=outcome_review.blocked_count,
+        )
+
+        if latest_report is None:
+            blockers.append("No hay evaluacion reciente.")
+            next_actions.insert(0, "Ejecutar Evaluation Loop antes de revisar promocion.")
+        else:
+            if latest_report.status != "passed":
+                blockers.append("La suite de evaluacion no esta en estado passed.")
+            if latest_report.average_score < 85:
+                blockers.append("Score de evaluacion menor a 85 para promotion gate.")
+            if latest_report.passed_cases < latest_report.total_cases:
+                blockers.append("Quedan casos de evaluacion sin pasar.")
+
+        if not curation_review.readiness.ready:
+            blockers.append("Dataset curado todavia no esta listo.")
+        if curation_review.readiness.usable_examples < 25:
+            blockers.append("Se requieren al menos 25 ejemplos utiles para promocion.")
+        if curation_review.readiness.corrected_examples < 3:
+            blockers.append("Se requieren al menos 3 ejemplos corregidos por feedback/remediacion.")
+
+        if not outcome_review.available:
+            warnings.append("No hay outcomes de remediacion aplicados; la evidencia es mas debil.")
+        if outcome_review.regression_count:
+            blockers.append("Hay outcomes con regresion abiertos.")
+        if outcome_review.pending_count:
+            blockers.append("Hay remediaciones pendientes de re-evaluacion.")
+        if outcome_review.blocked_count:
+            warnings.append("Hay remediaciones bloqueadas que conviene revisar antes de entrenar.")
+        if outcome_review.available and outcome_review.accepted_count < 1:
+            blockers.append("No hay outcomes aceptados como evidencia de mejora.")
+
+        blockers = list(dict.fromkeys(blockers))
+        warnings = list(dict.fromkeys(warnings))
+        next_actions = list(dict.fromkeys(next_actions))
+
+        allowed = not blockers
+        if allowed:
+            level = "promotion_preflight_allowed"
+            summary = "Promotion Gate habilita preflight QLoRA; entrenamiento real sigue bloqueado."
+            next_actions.insert(0, "Ejecutar preflight QLoRA con parametros conservadores.")
+            next_actions.append("No iniciar entrenamiento real sin confirmacion explicita posterior.")
+        elif latest_report and latest_report.average_score >= 75:
+            level = "promotion_blocked_needs_evidence"
+            summary = "Promotion Gate bloqueado: hay base tecnica, pero falta evidencia completa."
+            next_actions.insert(0, "Resolver blockers antes de preflight de promocion.")
+        else:
+            level = "promotion_blocked"
+            summary = "Promotion Gate bloqueado: evaluacion, dataset u outcomes no alcanzan el minimo."
+            next_actions.insert(0, "Fortalecer evaluacion y dataset antes de entrenar.")
+
+        return TrainingPromotionGate(
+            allowed=allowed,
+            level=level,
+            summary=summary,
+            evidence=evidence,
+            blockers=blockers,
+            warnings=warnings,
+            next_actions=next_actions,
+            latest_report=latest_report,
+            curation_review=curation_review,
+            outcome_review=outcome_review,
         )
 
     def _remediation_item(self, result: EvaluationCaseResult) -> EvaluationRemediationItem:

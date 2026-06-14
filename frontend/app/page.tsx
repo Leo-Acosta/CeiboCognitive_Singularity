@@ -264,6 +264,29 @@ type EvaluationRemediationOutcomeReview = {
   next_actions: string[];
 };
 
+type TrainingPromotionGate = {
+  allowed: boolean;
+  level: string;
+  summary: string;
+  evidence: {
+    latest_run_id: string | null;
+    evaluation_status: string;
+    evaluation_score: number | null;
+    passed_cases: number;
+    total_cases: number;
+    curation_ready: boolean;
+    usable_examples: number;
+    corrected_examples: number;
+    accepted_outcomes: number;
+    regression_outcomes: number;
+    pending_outcomes: number;
+    blocked_outcomes: number;
+  };
+  blockers: string[];
+  warnings: string[];
+  next_actions: string[];
+};
+
 type CoreStatus = {
   environment: string;
   agents_online: number;
@@ -618,6 +641,7 @@ export default function Home() {
   const [remediationConfirmation, setRemediationConfirmation] = useState("");
   const [remediationApplyResult, setRemediationApplyResult] = useState<EvaluationRemediationApplyResponse | null>(null);
   const [remediationOutcomeReview, setRemediationOutcomeReview] = useState<EvaluationRemediationOutcomeReview | null>(null);
+  const [trainingPromotionGate, setTrainingPromotionGate] = useState<TrainingPromotionGate | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
@@ -626,6 +650,7 @@ export default function Home() {
   const [isRunningEvaluation, setIsRunningEvaluation] = useState(false);
   const [isPreparingRemediation, setIsPreparingRemediation] = useState(false);
   const [isApplyingRemediation, setIsApplyingRemediation] = useState(false);
+  const [isReviewingPromotionGate, setIsReviewingPromotionGate] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
@@ -662,6 +687,7 @@ export default function Home() {
     void refreshEvaluationGate();
     void refreshEvaluationRemediation();
     void refreshRemediationOutcomes();
+    void refreshTrainingPromotionGate();
   }, []);
 
   useEffect(() => {
@@ -731,6 +757,7 @@ export default function Home() {
       setCurationMessage(
         `${data.curation.kept_examples}/${data.stats.total_examples} ejemplos utiles. ${data.readiness.level}.`
       );
+      void refreshTrainingPromotionGate();
       setConnection("ready");
     } catch {
       setLearningCuration(null);
@@ -762,6 +789,7 @@ export default function Home() {
         detail: `${data.kept_examples} ejemplos exportados`,
       });
       void reviewLearningCuration();
+      void refreshTrainingPromotionGate();
     } catch {
       setCurationMessage("No pude exportar el dataset curado.");
       setConnection("offline");
@@ -820,6 +848,21 @@ export default function Home() {
     }
   }
 
+  async function refreshTrainingPromotionGate() {
+    setIsReviewingPromotionGate(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/promotion-gate`);
+      if (!response.ok) {
+        throw new Error(`Promotion gate responded ${response.status}`);
+      }
+      setTrainingPromotionGate((await response.json()) as TrainingPromotionGate);
+    } catch {
+      setTrainingPromotionGate(null);
+    } finally {
+      setIsReviewingPromotionGate(false);
+    }
+  }
+
   async function applyEvaluationRemediation(caseId: string) {
     setIsApplyingRemediation(true);
     try {
@@ -853,6 +896,7 @@ export default function Home() {
       void refreshEvaluationGate();
       void refreshEvaluationRemediation();
       void refreshRemediationOutcomes();
+      void refreshTrainingPromotionGate();
       void reviewLearningCuration();
       void refreshCognition();
     } catch {
@@ -884,6 +928,7 @@ export default function Home() {
       void refreshEvaluationGate();
       void refreshEvaluationRemediation();
       void refreshRemediationOutcomes();
+      void refreshTrainingPromotionGate();
       void refreshCognition();
     } catch {
       setEvaluationMessage("No pude ejecutar la evaluacion local.");
@@ -1733,6 +1778,96 @@ export default function Home() {
                   {voiceStatus?.safety_notes[0] ??
                     "Voice v1 autoriza por frase hablada; las ordenes siguen pasando por seguridad."}
                 </p>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Sprint 37
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Training Promotion Gate
+                  </h2>
+                </div>
+                <ShieldCheck
+                  className={`h-5 w-5 ${
+                    trainingPromotionGate?.allowed ? "text-emerald-600" : "text-amber-600"
+                  }`}
+                />
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {trainingPromotionGate ? (
+                  <>
+                    <div
+                      className={`rounded-md border px-3 py-2 text-sm ${
+                        trainingPromotionGate.allowed
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-amber-200 bg-amber-50 text-amber-800"
+                      }`}
+                    >
+                      <p className="font-semibold">{trainingPromotionGate.level}</p>
+                      <p className="mt-1 text-xs leading-5">{trainingPromotionGate.summary}</p>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {trainingPromotionGate.evidence.evaluation_score ?? "--"}
+                        </p>
+                        <p className="text-slate-500">score</p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {trainingPromotionGate.evidence.usable_examples}
+                        </p>
+                        <p className="text-slate-500">ejemplos</p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {trainingPromotionGate.evidence.accepted_outcomes}
+                        </p>
+                        <p className="text-slate-500">outcomes</p>
+                      </div>
+                    </div>
+
+                    {trainingPromotionGate.blockers[0] ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                        {trainingPromotionGate.blockers[0]}
+                      </p>
+                    ) : trainingPromotionGate.warnings[0] ? (
+                      <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800">
+                        {trainingPromotionGate.warnings[0]}
+                      </p>
+                    ) : null}
+
+                    {trainingPromotionGate.next_actions[0] ? (
+                      <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                        {trainingPromotionGate.next_actions[0]}
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                    Revisa evidencia de evaluacion, dataset y outcomes antes de habilitar preflight.
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => void refreshTrainingPromotionGate()}
+                  disabled={isReviewingPromotionGate}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-sky-300 hover:bg-white hover:text-sky-900 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isReviewingPromotionGate ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="h-4 w-4" />
+                  )}
+                  Revisar promotion gate
+                </button>
               </div>
             </div>
 
