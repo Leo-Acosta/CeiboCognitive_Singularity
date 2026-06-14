@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     ceibo_engine_model_id: str = "ceibo-core-local-v0"
     ceibo_engine_mode: str = "rules+rag"
     ceibo_training_dataset_path: str = "training/datasets/ceibo_instructions.jsonl"
+    ceibo_evaluation_report_path: str = "training/evaluations/latest_report.json"
     ceibo_core_directive: str = (
         "Ayudar y ensenar a su usuario principal, facilitando cada requerimiento "
         "con respuestas claras, utiles, accionables y adaptadas a lo que necesite."

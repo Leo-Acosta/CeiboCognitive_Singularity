@@ -1,8 +1,14 @@
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from json import JSONDecodeError
+from pathlib import Path
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from ceibo_core.ai_engine import ceibo_engine
+from ceibo_core.core.config import settings
 from ceibo_core.models.schemas import (
     DatasetCurationRequest,
     DevCorePatchPlannerRequest,
@@ -28,8 +34,9 @@ class EvaluationCase:
 
 
 class EvaluationHarnessService:
-    def __init__(self) -> None:
+    def __init__(self, report_path: Path | None = None) -> None:
         self._latest_report: EvaluationSuiteReport | None = None
+        self._report_path = report_path
 
     async def run(self) -> EvaluationSuiteReport:
         results = [
@@ -84,10 +91,46 @@ class EvaluationHarnessService:
             created_at=datetime.now(UTC),
         )
         self._latest_report = report
+        self._save_latest_report(report)
         return report
 
     def latest(self) -> EvaluationSuiteReport | None:
+        if self._latest_report is None:
+            self._latest_report = self._load_latest_report()
         return self._latest_report
+
+    def project_root(self) -> Path:
+        current = Path(__file__).resolve()
+        for parent in current.parents:
+            if (parent / "docker-compose.yml").exists():
+                return parent
+            if (parent / "pyproject.toml").exists() and parent.name == "app":
+                return parent
+        return current.parents[4]
+
+    def report_path(self) -> Path:
+        if self._report_path is not None:
+            return self._report_path
+        configured = Path(settings.ceibo_evaluation_report_path)
+        if configured.is_absolute():
+            return configured
+        return self.project_root() / configured
+
+    def _save_latest_report(self, report: EvaluationSuiteReport) -> None:
+        path = self.report_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+        tmp_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        tmp_path.replace(path)
+
+    def _load_latest_report(self) -> EvaluationSuiteReport | None:
+        path = self.report_path()
+        if not path.exists():
+            return None
+        try:
+            return EvaluationSuiteReport.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        except (JSONDecodeError, OSError, ValidationError):
+            return None
 
     async def training_gate(self) -> EvaluationTrainingGate:
         curation_review = await dataset_curator_service.review(DatasetCurationRequest(min_score=60))

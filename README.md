@@ -123,6 +123,10 @@ API:
 - `GET /api/v1/memory/search`
 - `GET /api/v1/memory/knowledge/status`
 - `GET /api/v1/memory/knowledge`
+
+Evaluation Loop v1 persists the latest report in `training/evaluations/latest_report.json`.
+The training gate reads that report after API restarts and stays blocked when the suite is missing,
+needs attention, or the curated dataset is not ready.
 - `POST /api/v1/memory/knowledge`
 - `GET /api/v1/memory/knowledge/search`
 - `GET /api/v1/tasks`

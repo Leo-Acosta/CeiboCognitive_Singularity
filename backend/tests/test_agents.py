@@ -17,6 +17,8 @@ from ceibo_core.models.schemas import (
     DatasetVersionRequest,
     DatasetCurationRequest,
     DevCoreExecutionRequest,
+    EvaluationCaseResult,
+    EvaluationSuiteReport,
     DevCorePatchApplyRequest,
     DevCorePatchChange,
     DevCorePatchPlanFile,
@@ -1205,18 +1207,24 @@ async def test_singularity_index_captures_local_history(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_evaluation_harness_runs_core_suites():
-    report = await EvaluationHarnessService().run()
+    report_path = Path(".tmp-tests") / f"core_eval_{uuid4()}.json"
 
-    assert report.total_cases == 9
-    assert 0 <= report.average_score <= 100
-    assert {"reasoning", "rag", "security", "devcore", "patch", "voice", "learning"}.issubset(report.category_scores)
-    assert report.results[0].expected_signals
-    assert report.status in {"passed", "needs_attention"}
+    try:
+        report = await EvaluationHarnessService(report_path=report_path).run()
+
+        assert report.total_cases == 9
+        assert 0 <= report.average_score <= 100
+        assert {"reasoning", "rag", "security", "devcore", "patch", "voice", "learning"}.issubset(report.category_scores)
+        assert report.results[0].expected_signals
+        assert report.status in {"passed", "needs_attention"}
+    finally:
+        report_path.unlink(missing_ok=True)
 
 
 @pytest.mark.asyncio
 async def test_evaluation_training_gate_blocks_without_recent_eval(monkeypatch):
-    service = EvaluationHarnessService()
+    report_path = Path(".tmp-tests") / f"missing_eval_{uuid4()}.json"
+    service = EvaluationHarnessService(report_path=report_path)
     dataset_path = Path(".tmp-tests") / f"evaluation_gate_{uuid4()}.jsonl"
     monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
 
@@ -1243,6 +1251,69 @@ async def test_evaluation_training_gate_blocks_without_recent_eval(monkeypatch):
         assert gate.usable_examples == 1
     finally:
         dataset_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_evaluation_harness_persists_latest_report():
+    report_path = Path(".tmp-tests") / f"latest_eval_{uuid4()}.json"
+    service = EvaluationHarnessService(report_path=report_path)
+
+    try:
+        report = await service.run()
+        reloaded = EvaluationHarnessService(report_path=report_path).latest()
+
+        assert report_path.exists()
+        assert reloaded is not None
+        assert reloaded.run_id == report.run_id
+        assert reloaded.total_cases == 9
+    finally:
+        report_path.unlink(missing_ok=True)
+
+
+def test_evaluation_harness_ignores_corrupt_persisted_report():
+    report_path = Path(".tmp-tests") / f"corrupt_eval_{uuid4()}.json"
+    report_path.parent.mkdir(exist_ok=True)
+    report_path.write_text("{not-json", encoding="utf-8")
+
+    try:
+        assert EvaluationHarnessService(report_path=report_path).latest() is None
+    finally:
+        report_path.unlink(missing_ok=True)
+
+
+def test_evaluation_harness_saves_report_atomically():
+    report_path = Path(".tmp-tests") / f"manual_eval_{uuid4()}.json"
+    service = EvaluationHarnessService(report_path=report_path)
+    report = EvaluationSuiteReport(
+        run_id="eval-test",
+        status="passed",
+        total_cases=1,
+        passed_cases=1,
+        average_score=100,
+        category_scores={"smoke": 100},
+        results=[
+            EvaluationCaseResult(
+                case_id="smoke",
+                category="smoke",
+                prompt="smoke",
+                passed=True,
+                score=100,
+                expected_signals=["ok"],
+                observed_signals=["ok"],
+                response_preview="ok",
+            )
+        ],
+    )
+
+    try:
+        service._save_latest_report(report)
+        reloaded = EvaluationHarnessService(report_path=report_path).latest()
+
+        assert reloaded is not None
+        assert reloaded.run_id == "eval-test"
+        assert not report_path.with_suffix(".json.tmp").exists()
+    finally:
+        report_path.unlink(missing_ok=True)
 
 
 @pytest.mark.asyncio

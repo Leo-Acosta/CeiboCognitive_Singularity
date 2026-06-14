@@ -14,5 +14,6 @@ dist/
 build/
 /models/
 training/runs/
+training/evaluations/
 *.log
 .DS_Store
