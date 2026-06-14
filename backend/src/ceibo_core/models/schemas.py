@@ -980,10 +980,13 @@ class DatasetExpansionRequest(BaseModel):
     focus_areas: list[str] = Field(default_factory=list)
     difficulty: str = "balanced"
     min_quality_score: int = Field(default=80, ge=0, le=100)
+    min_examples_per_category: int = Field(default=3, ge=1, le=50)
     include_robotics: bool = True
     include_code: bool = True
     include_safety: bool = True
     write_review_file: bool = True
+    require_safety_signals: bool = True
+    require_actionable_response: bool = True
 
     @field_validator("focus_areas", mode="before")
     @classmethod
@@ -1005,8 +1008,12 @@ class DatasetExpansionCandidate(BaseModel):
     category: str
     quality_score: int = Field(ge=0, le=100)
     duplicate_risk: str = "low"
+    fingerprint: str = ""
     requires_human_review: bool = True
+    accepted_by_gate: bool = False
     example: TrainingExample
+    quality_signals: list[str] = Field(default_factory=list)
+    gate_failures: list[str] = Field(default_factory=list)
     review_notes: list[str] = Field(default_factory=list)
 
 
@@ -1020,7 +1027,14 @@ class DatasetExpansionReport(BaseModel):
     rejected_candidates: int
     average_quality: float = 0
     category_counts: dict[str, int] = Field(default_factory=dict)
+    coverage_score: int = Field(default=0, ge=0, le=100)
+    diversity_score: int = Field(default=0, ge=0, le=100)
+    duplicate_candidates: int = 0
+    gate_passed_candidates: int = 0
+    promotion_ready: bool = False
+    dataset_fingerprint: str | None = None
     review_file: str | None = None
+    review_manifest: str | None = None
     preview_candidates: list[DatasetExpansionCandidate] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)

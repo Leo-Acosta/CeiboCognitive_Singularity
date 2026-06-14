@@ -17,6 +17,9 @@ from ceibo_core.models.schemas import (
 from ceibo_core.services.training_data import training_data_service
 
 
+MIN_RESPONSE_CHARS = 360
+MAX_DUPLICATE_RATIO = 0.05
+
 BASE_CATEGORIES = [
     "reasoning",
     "safety",
@@ -128,32 +131,64 @@ class DatasetExpansionService:
         existing_fingerprints = {
             self._fingerprint(example.instruction, example.response) for example in existing
         }
+        dataset_fingerprint = self._dataset_fingerprint(existing_fingerprints)
         categories = self._categories(request)
         candidates: list[DatasetExpansionCandidate] = []
         generated_raw = 0
+        duplicate_candidates = 0
         index = 0
-        while len(candidates) < request.target_examples and generated_raw < request.target_examples * 3:
+        max_attempts = request.target_examples * max(4, len(categories))
+        while len(candidates) < request.target_examples and generated_raw < max_attempts:
             category = categories[index % len(categories)]
             generated_raw += 1
             candidate = self._candidate(category, index, request)
             index += 1
             duplicate_risk = (
                 "high"
-                if self._fingerprint(candidate.example.instruction, candidate.example.response) in existing_fingerprints
+                if candidate.fingerprint in existing_fingerprints
                 else "low"
             )
-            candidate = candidate.model_copy(update={"duplicate_risk": duplicate_risk})
-            if candidate.quality_score >= request.min_quality_score and duplicate_risk != "high":
+            gate_failures = self._gate_failures(candidate, request, duplicate_risk)
+            candidate = candidate.model_copy(
+                update={
+                    "duplicate_risk": duplicate_risk,
+                    "accepted_by_gate": not gate_failures,
+                    "gate_failures": gate_failures,
+                }
+            )
+            if duplicate_risk == "high":
+                duplicate_candidates += 1
+            if candidate.accepted_by_gate:
                 candidates.append(candidate)
 
-        review_file = self._write_review_file(candidates, request) if request.write_review_file else None
+        review_file, review_manifest = (
+            self._write_review_file(candidates, request, dataset_fingerprint)
+            if request.write_review_file
+            else (None, None)
+        )
         category_counts = Counter(candidate.category for candidate in candidates)
         average_quality = (
             round(sum(candidate.quality_score for candidate in candidates) / len(candidates), 1)
             if candidates
             else 0
         )
-        warnings = self._warnings(request, candidates, generated_raw)
+        coverage_score = self._coverage_score(categories, category_counts, request.min_examples_per_category)
+        diversity_score = self._diversity_score(candidates)
+        warnings = self._warnings(
+            request,
+            candidates,
+            generated_raw,
+            duplicate_candidates,
+            coverage_score,
+            diversity_score,
+        )
+        promotion_ready = (
+            len(candidates) == request.target_examples
+            and average_quality >= request.min_quality_score
+            and coverage_score >= 90
+            and diversity_score >= 70
+            and duplicate_candidates / max(1, generated_raw) <= MAX_DUPLICATE_RATIO
+        )
         return DatasetExpansionReport(
             expansion_id=f"expansion-{uuid4().hex[:12]}",
             status="review_required" if candidates else "no_candidates",
@@ -167,14 +202,22 @@ class DatasetExpansionService:
             rejected_candidates=max(0, generated_raw - len(candidates)),
             average_quality=average_quality,
             category_counts=dict(category_counts),
+            coverage_score=coverage_score,
+            diversity_score=diversity_score,
+            duplicate_candidates=duplicate_candidates,
+            gate_passed_candidates=sum(1 for candidate in candidates if candidate.accepted_by_gate),
+            promotion_ready=promotion_ready,
+            dataset_fingerprint=dataset_fingerprint,
             review_file=str(review_file) if review_file else None,
+            review_manifest=str(review_manifest) if review_manifest else None,
             preview_candidates=candidates[:8],
             warnings=warnings,
             next_actions=[
                 "Revisar el archivo de candidatos antes de incorporarlos.",
                 "Marcar ejemplos debiles para correccion humana.",
                 "Curar duplicados y exportar solo ejemplos aprobados.",
-                "No iniciar fine-tune hasta pasar Evaluation Hardening.",
+                "Ejecutar Learning Curation y Evaluation Hardening antes de entrenar.",
+                "Registrar en Human Feedback Studio los ejemplos corregidos por el usuario.",
             ],
         )
 
@@ -199,6 +242,12 @@ class DatasetExpansionService:
             if candidates
             else 0
         )
+        manifest = path.with_suffix(".manifest.json")
+        manifest_data = self._read_manifest(manifest)
+        categories = list(category_counts) or BASE_CATEGORIES
+        coverage_score = self._coverage_score(categories, category_counts, 1)
+        diversity_score = self._diversity_score(candidates)
+        duplicate_candidates = sum(1 for candidate in candidates if candidate.duplicate_risk == "high")
         return DatasetExpansionReport(
             expansion_id=path.stem.replace("dataset_", ""),
             status="review_required" if candidates else "empty",
@@ -209,7 +258,14 @@ class DatasetExpansionService:
             rejected_candidates=0,
             average_quality=average_quality,
             category_counts=dict(category_counts),
+            coverage_score=coverage_score,
+            diversity_score=diversity_score,
+            duplicate_candidates=duplicate_candidates,
+            gate_passed_candidates=sum(1 for candidate in candidates if candidate.accepted_by_gate),
+            promotion_ready=False,
+            dataset_fingerprint=manifest_data.get("dataset_fingerprint"),
             review_file=str(path),
+            review_manifest=str(manifest) if manifest.exists() else None,
             preview_candidates=candidates[:limit],
             warnings=[],
             next_actions=[
@@ -256,15 +312,21 @@ class DatasetExpansionService:
                 "requires_human_review": True,
                 "generator": "deterministic-blueprint-v1",
                 "variant": variant,
+                "category": category,
+                "quality_gate": "sprint43",
             },
         )
         quality = self._quality_score(example)
+        fingerprint = self._fingerprint(example.instruction, example.response)
+        quality_signals = self._quality_signals(example)
         notes = self._review_notes(example, quality)
         return DatasetExpansionCandidate(
             candidate_id=f"candidate-{sha256(f'{category}:{index}:{instruction}'.encode('utf-8')).hexdigest()[:12]}",
             category=category,
             quality_score=quality,
+            fingerprint=fingerprint,
             example=example,
+            quality_signals=quality_signals,
             review_notes=notes,
         )
 
@@ -289,14 +351,17 @@ class DatasetExpansionService:
             f"{base}\n\n"
             f"Aplicacion al caso {variant}: CEIBO debe dejar evidencia de la interpretacion, "
             f"explicar por que la respuesta es segura y registrar lo aprendido si el usuario corrige. "
-            f"Categoria entrenada: {category}. Resultado esperado: una accion pequena, auditable y util."
+            f"Categoria entrenada: {category}. Resultado esperado: una accion pequena, auditable y util. "
+            "Criterio de aceptacion: la respuesta debe poder revisarse por un humano, convertirse en "
+            "ejemplo JSONL y evaluarse sin afirmar capacidades no implementadas."
         )
 
     def _write_review_file(
         self,
         candidates: list[DatasetExpansionCandidate],
         request: DatasetExpansionRequest,
-    ) -> Path:
+        dataset_fingerprint: str,
+    ) -> tuple[Path, Path]:
         path = self.review_dir() / f"dataset_expansion_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as handle:
@@ -308,15 +373,27 @@ class DatasetExpansionService:
                 {
                     "target_examples": request.target_examples,
                     "min_quality_score": request.min_quality_score,
+                    "min_examples_per_category": request.min_examples_per_category,
+                    "focus_areas": self._categories(request),
+                    "accepted_candidates": len(candidates),
+                    "category_counts": dict(Counter(candidate.category for candidate in candidates)),
+                    "average_quality": (
+                        round(sum(candidate.quality_score for candidate in candidates) / len(candidates), 1)
+                        if candidates
+                        else 0
+                    ),
+                    "dataset_fingerprint": dataset_fingerprint,
+                    "generator": "deterministic-blueprint-v1",
                     "created_at": datetime.now(UTC).isoformat(),
                     "review_required": True,
+                    "promotion_ready": False,
                 },
                 ensure_ascii=True,
                 indent=2,
             ),
             encoding="utf-8",
         )
-        return path
+        return path, manifest
 
     def _read_review_file(self, path: Path) -> list[DatasetExpansionCandidate]:
         candidates: list[DatasetExpansionCandidate] = []
@@ -331,11 +408,22 @@ class DatasetExpansionService:
                 continue
         return candidates
 
+    def _read_manifest(self, path: Path) -> dict[str, str]:
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        return {str(key): str(value) for key, value in payload.items() if value is not None}
+
     def _quality_score(self, example: TrainingExample) -> int:
         score = 45
         if len(example.instruction) >= 80:
             score += 15
-        if len(example.response) >= 320:
+        if len(example.response) >= MIN_RESPONSE_CHARS:
             score += 20
         if "segur" in example.response.lower() or "riesgo" in example.response.lower():
             score += 8
@@ -345,6 +433,41 @@ class DatasetExpansionService:
             score += 5
         return max(0, min(100, score))
 
+    def _quality_signals(self, example: TrainingExample) -> list[str]:
+        text = f"{example.instruction}\n{example.response}".lower()
+        signals: list[str] = []
+        checks = {
+            "long_instruction": len(example.instruction) >= 80,
+            "long_response": len(example.response) >= MIN_RESPONSE_CHARS,
+            "safety_language": any(term in text for term in ["segur", "riesgo", "politica", "bloque"]),
+            "auditability": any(term in text for term in ["auditor", "evidencia", "trazabilidad", "registr"]),
+            "human_review": any(term in text for term in ["humano", "revision", "corrige"]),
+            "actionable": any(term in text for term in ["accion", "siguiente", "criterio", "resultado"]),
+        }
+        for name, passed in checks.items():
+            if passed:
+                signals.append(name)
+        return signals
+
+    def _gate_failures(
+        self,
+        candidate: DatasetExpansionCandidate,
+        request: DatasetExpansionRequest,
+        duplicate_risk: str,
+    ) -> list[str]:
+        failures: list[str] = []
+        if duplicate_risk == "high":
+            failures.append("duplicate_fingerprint")
+        if candidate.quality_score < request.min_quality_score:
+            failures.append("below_quality_threshold")
+        if request.require_safety_signals and "safety_language" not in candidate.quality_signals:
+            failures.append("missing_safety_language")
+        if request.require_actionable_response and "actionable" not in candidate.quality_signals:
+            failures.append("missing_actionable_response")
+        if "human_review" not in candidate.quality_signals:
+            failures.append("missing_human_review_signal")
+        return failures
+
     def _review_notes(self, example: TrainingExample, quality: int) -> list[str]:
         notes = ["Requiere revision humana antes de entrenamiento."]
         if quality >= 90:
@@ -352,6 +475,39 @@ class DatasetExpansionService:
         if len(example.response) < 420:
             notes.append("Puede enriquecerse con mas contexto especifico del proyecto.")
         return notes
+
+    def _coverage_score(
+        self,
+        categories: list[str],
+        category_counts: Counter[str],
+        min_examples_per_category: int,
+    ) -> int:
+        if not categories:
+            return 0
+        covered = 0
+        for category in categories:
+            if category_counts.get(category, 0) >= min_examples_per_category:
+                covered += 1
+        return round((covered / len(categories)) * 100)
+
+    def _diversity_score(self, candidates: list[DatasetExpansionCandidate]) -> int:
+        if not candidates:
+            return 0
+        fingerprints = {candidate.fingerprint for candidate in candidates}
+        categories = {candidate.category for candidate in candidates}
+        scenario_terms = {
+            candidate.example.instruction.rsplit(":", 1)[-1].strip().lower()
+            for candidate in candidates
+            if ":" in candidate.example.instruction
+        }
+        fingerprint_score = round((len(fingerprints) / len(candidates)) * 55)
+        category_score = min(25, len(categories) * 3)
+        scenario_score = min(20, len(scenario_terms) * 2)
+        return min(100, fingerprint_score + category_score + scenario_score)
+
+    def _dataset_fingerprint(self, fingerprints: set[str]) -> str:
+        payload = "\n".join(sorted(fingerprints))
+        return sha256(payload.encode("utf-8")).hexdigest()
 
     def _fingerprint(self, instruction: str, response: str) -> str:
         payload = f"{self._normalized(instruction)}\n{self._normalized(response)}"
@@ -365,10 +521,19 @@ class DatasetExpansionService:
         request: DatasetExpansionRequest,
         candidates: list[DatasetExpansionCandidate],
         generated_raw: int,
+        duplicate_candidates: int,
+        coverage_score: int,
+        diversity_score: int,
     ) -> list[str]:
         warnings: list[str] = []
         if len(candidates) < request.target_examples:
             warnings.append("No se alcanzo el objetivo completo con el umbral de calidad solicitado.")
+        if coverage_score < 90:
+            warnings.append("Cobertura insuficiente: algunas categorias quedaron por debajo del minimo.")
+        if diversity_score < 70:
+            warnings.append("Diversidad insuficiente: revisar escenarios repetidos antes de curar.")
+        if duplicate_candidates:
+            warnings.append(f"Se descartaron {duplicate_candidates} candidatos por duplicado.")
         if request.target_examples >= 250:
             warnings.append("Expansion grande: revisar por tandas antes de promover.")
         if generated_raw > len(candidates):

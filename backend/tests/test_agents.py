@@ -1194,10 +1194,21 @@ async def test_dataset_expansion_builds_review_file_without_touching_main_datase
         assert report.accepted_candidates == 100
         assert report.average_quality >= 80
         assert report.review_file is not None
+        assert report.review_manifest is not None
         assert Path(report.review_file).exists()
+        assert Path(report.review_manifest).exists()
         assert not dataset_path.exists()
         assert report.category_counts["safety"] >= 1
+        assert report.coverage_score == 100
+        assert report.diversity_score >= 70
+        assert report.duplicate_candidates == 0
+        assert report.gate_passed_candidates == 100
+        assert report.promotion_ready is True
+        assert report.dataset_fingerprint is not None
         assert report.preview_candidates[0].requires_human_review is True
+        assert report.preview_candidates[0].accepted_by_gate is True
+        assert report.preview_candidates[0].fingerprint
+        assert "human_review" in report.preview_candidates[0].quality_signals
         assert "requires-human-review" in report.preview_candidates[0].example.tags
     finally:
         dataset_path.unlink(missing_ok=True)
@@ -1225,6 +1236,10 @@ async def test_dataset_expansion_latest_reads_generated_candidates():
         assert len(latest.preview_candidates) == 3
         assert set(latest.category_counts).issubset({"robotics", "voice", "safety"})
         assert latest.review_file == built.review_file
+        assert latest.review_manifest == built.review_manifest
+        assert latest.coverage_score == 100
+        assert latest.diversity_score >= 70
+        assert latest.gate_passed_candidates == built.gate_passed_candidates
     finally:
         for path in review_dir.glob("*"):
             path.unlink(missing_ok=True)

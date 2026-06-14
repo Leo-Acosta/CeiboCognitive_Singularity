@@ -428,7 +428,9 @@ type DatasetExpansionCandidate = {
   category: string;
   quality_score: number;
   duplicate_risk: string;
+  fingerprint: string;
   requires_human_review: boolean;
+  accepted_by_gate: boolean;
   example: {
     instruction: string;
     input: string;
@@ -437,6 +439,8 @@ type DatasetExpansionCandidate = {
     source: string;
     rating: LearningRating | null;
   };
+  quality_signals: string[];
+  gate_failures: string[];
   review_notes: string[];
 };
 
@@ -450,7 +454,14 @@ type DatasetExpansionReport = {
   rejected_candidates: number;
   average_quality: number;
   category_counts: Record<string, number>;
+  coverage_score: number;
+  diversity_score: number;
+  duplicate_candidates: number;
+  gate_passed_candidates: number;
+  promotion_ready: boolean;
+  dataset_fingerprint: string | null;
   review_file: string | null;
+  review_manifest: string | null;
   preview_candidates: DatasetExpansionCandidate[];
   warnings: string[];
   next_actions: string[];
@@ -2177,9 +2188,54 @@ export default function Home() {
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="font-semibold text-slate-900">
+                        {datasetExpansion.coverage_score}/100
+                      </p>
+                      <p className="text-slate-500">cobertura</p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="font-semibold text-slate-900">
+                        {datasetExpansion.diversity_score}/100
+                      </p>
+                      <p className="text-slate-500">diversidad</p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="font-semibold text-slate-900">
+                        {datasetExpansion.gate_passed_candidates}
+                      </p>
+                      <p className="text-slate-500">gate ok</p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="font-semibold text-slate-900">
+                        {datasetExpansion.duplicate_candidates}
+                      </p>
+                      <p className="text-slate-500">duplicados</p>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`rounded-md border px-3 py-2 text-xs leading-5 ${
+                      datasetExpansion.promotion_ready
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : "border-amber-200 bg-amber-50 text-amber-800"
+                    }`}
+                  >
+                    {datasetExpansion.promotion_ready
+                      ? "Lote robusto para pasar a curacion humana. Todavia no entrena solo."
+                      : "Lote pendiente: revisar gates, diversidad o cobertura antes de curar."}
+                  </div>
+
                   {datasetExpansion.review_file ? (
                     <p className="break-all rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
                       {datasetExpansion.review_file}
+                    </p>
+                  ) : null}
+
+                  {datasetExpansion.review_manifest ? (
+                    <p className="break-all rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                      manifest: {datasetExpansion.review_manifest}
                     </p>
                   ) : null}
 
@@ -2199,6 +2255,23 @@ export default function Home() {
                       <p className="mt-1 line-clamp-3 text-xs leading-5 text-slate-500">
                         {datasetExpansion.preview_candidates[0].example.response}
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {datasetExpansion.preview_candidates[0].quality_signals
+                          .slice(0, 4)
+                          .map((signal) => (
+                            <span
+                              key={signal}
+                              className="rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-500"
+                            >
+                              {signal}
+                            </span>
+                          ))}
+                      </div>
+                      {datasetExpansion.preview_candidates[0].gate_failures.length ? (
+                        <p className="mt-2 text-xs leading-5 text-amber-700">
+                          gate: {datasetExpansion.preview_candidates[0].gate_failures.join(", ")}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
 
