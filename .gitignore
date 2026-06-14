@@ -4,6 +4,10 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-cache/
+.pytest-runtime/
+backend/.pytest-cache/
+backend/.pytest-runtime/
 pytest-cache-files-*/
 .ruff_cache/
 .mypy_cache/

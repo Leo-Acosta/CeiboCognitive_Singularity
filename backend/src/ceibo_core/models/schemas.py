@@ -854,6 +854,27 @@ class EvaluationTrainingGate(BaseModel):
     curation_review: LearningCurationReview | None = None
 
 
+class EvaluationRemediationItem(BaseModel):
+    case_id: str
+    category: str
+    score: int = Field(ge=0, le=100)
+    missing_signals: list[str] = Field(default_factory=list)
+    diagnosis: str
+    recommended_actions: list[str] = Field(default_factory=list)
+    proposed_learning_example: TrainingExampleRequest
+
+
+class EvaluationRemediationPlan(BaseModel):
+    available: bool
+    run_id: str | None = None
+    status: str = "missing"
+    average_score: int | None = None
+    failed_cases: int = 0
+    summary: str
+    items: list[EvaluationRemediationItem] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+
+
 class TrainingRunStatus(StrEnum):
     READY = "ready"
     BLOCKED = "blocked"

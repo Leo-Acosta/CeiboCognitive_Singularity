@@ -19,6 +19,7 @@ import {
   Sparkles,
   Terminal,
   UserRound,
+  Wand2,
 } from "lucide-react";
 
 type SpeechRecognitionResultLike = {
@@ -185,6 +186,34 @@ type EvaluationTrainingGate = {
   next_actions: string[];
   latest_report: EvaluationSuiteReport | null;
   curation_review: LearningCurationReview | null;
+};
+
+type EvaluationRemediationItem = {
+  case_id: string;
+  category: string;
+  score: number;
+  missing_signals: string[];
+  diagnosis: string;
+  recommended_actions: string[];
+  proposed_learning_example: {
+    instruction: string;
+    input: string;
+    response: string;
+    tags: string[];
+    source: string;
+    metadata: Record<string, unknown>;
+  };
+};
+
+type EvaluationRemediationPlan = {
+  available: boolean;
+  run_id: string | null;
+  status: string;
+  average_score: number | null;
+  failed_cases: number;
+  summary: string;
+  items: EvaluationRemediationItem[];
+  next_actions: string[];
 };
 
 type CoreStatus = {
@@ -537,12 +566,14 @@ export default function Home() {
   const [curationMessage, setCurationMessage] = useState("Sin revision de dataset todavia.");
   const [evaluationReport, setEvaluationReport] = useState<EvaluationSuiteReport | null>(null);
   const [evaluationGate, setEvaluationGate] = useState<EvaluationTrainingGate | null>(null);
+  const [evaluationRemediation, setEvaluationRemediation] = useState<EvaluationRemediationPlan | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
   const [isReviewingCuration, setIsReviewingCuration] = useState(false);
   const [isExportingCuration, setIsExportingCuration] = useState(false);
   const [isRunningEvaluation, setIsRunningEvaluation] = useState(false);
+  const [isPreparingRemediation, setIsPreparingRemediation] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
@@ -577,6 +608,7 @@ export default function Home() {
     void refreshVoiceStatus();
     void reviewLearningCuration();
     void refreshEvaluationGate();
+    void refreshEvaluationRemediation();
   }, []);
 
   useEffect(() => {
@@ -707,6 +739,22 @@ export default function Home() {
     }
   }
 
+  async function refreshEvaluationRemediation() {
+    setIsPreparingRemediation(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/evaluations/remediation`);
+      if (!response.ok) {
+        throw new Error(`Evaluation remediation responded ${response.status}`);
+      }
+      const data = (await response.json()) as EvaluationRemediationPlan;
+      setEvaluationRemediation(data);
+    } catch {
+      setEvaluationRemediation(null);
+    } finally {
+      setIsPreparingRemediation(false);
+    }
+  }
+
   async function runEvaluationSuite() {
     setIsRunningEvaluation(true);
     try {
@@ -725,6 +773,7 @@ export default function Home() {
         detail: `${data.passed_cases}/${data.total_cases} casos - ${data.average_score}/100`,
       });
       void refreshEvaluationGate();
+      void refreshEvaluationRemediation();
       void refreshCognition();
     } catch {
       setEvaluationMessage("No pude ejecutar la evaluacion local.");
@@ -1973,6 +2022,67 @@ export default function Home() {
                 >
                   {isRunningEvaluation ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                   Evaluar CEIBO
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Sprint 34
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Remediacion
+                  </h2>
+                </div>
+                <Wand2 className="h-5 w-5 text-sky-700" />
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
+                  {evaluationRemediation?.summary ??
+                    "Prepara acciones desde los casos fallidos de la ultima evaluacion."}
+                </p>
+
+                {evaluationRemediation?.items.length ? (
+                  <div className="space-y-2">
+                    {evaluationRemediation.items.slice(0, 2).map((item) => (
+                      <div
+                        key={item.case_id}
+                        className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-semibold">{item.case_id}</p>
+                          <span>{item.score}/100</span>
+                        </div>
+                        <p className="mt-1">{item.diagnosis}</p>
+                        <p className="mt-1 text-amber-700">
+                          Ejemplo: {item.proposed_learning_example.response}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : evaluationRemediation?.available ? (
+                  <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-700">
+                    No hay fallas que remediar en el ultimo reporte.
+                  </p>
+                ) : null}
+
+                {evaluationRemediation?.next_actions[0] ? (
+                  <p className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-600">
+                    {evaluationRemediation.next_actions[0]}
+                  </p>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() => void refreshEvaluationRemediation()}
+                  disabled={isPreparingRemediation}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-sky-300 hover:bg-white hover:text-sky-900 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isPreparingRemediation ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                  Preparar remediacion
                 </button>
               </div>
             </div>

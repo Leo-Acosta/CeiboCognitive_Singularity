@@ -14,8 +14,11 @@ from ceibo_core.models.schemas import (
     DevCorePatchPlannerRequest,
     DevCorePlanRequest,
     EvaluationCaseResult,
+    EvaluationRemediationItem,
+    EvaluationRemediationPlan,
     EvaluationSuiteReport,
     EvaluationTrainingGate,
+    TrainingExampleRequest,
 )
 from ceibo_core.services.dataset_curator import dataset_curator_service
 from ceibo_core.services.devcore import devcore_service
@@ -98,6 +101,47 @@ class EvaluationHarnessService:
         if self._latest_report is None:
             self._latest_report = self._load_latest_report()
         return self._latest_report
+
+    def remediation_plan(self) -> EvaluationRemediationPlan:
+        latest_report = self.latest()
+        if latest_report is None:
+            return EvaluationRemediationPlan(
+                available=False,
+                summary="No hay evaluacion reciente para remediar.",
+                next_actions=["Ejecutar Evaluation Loop antes de proponer correcciones."],
+            )
+
+        failed_results = [result for result in latest_report.results if not result.passed]
+        if not failed_results:
+            return EvaluationRemediationPlan(
+                available=True,
+                run_id=latest_report.run_id,
+                status=latest_report.status,
+                average_score=latest_report.average_score,
+                summary="La evaluacion actual no tiene casos fallidos.",
+                next_actions=[
+                    "Mantener estos casos como baseline.",
+                    "Agregar casos mas exigentes antes de promover entrenamiento.",
+                ],
+            )
+
+        items = [self._remediation_item(result) for result in failed_results]
+        return EvaluationRemediationPlan(
+            available=True,
+            run_id=latest_report.run_id,
+            status=latest_report.status,
+            average_score=latest_report.average_score,
+            failed_cases=len(items),
+            summary=(
+                f"{len(items)} caso(s) necesitan remediacion antes de entrenar o promover modelo."
+            ),
+            items=items,
+            next_actions=[
+                "Revisar las respuestas ideales propuestas.",
+                "Guardar ejemplos corregidos en Learning Loop solo despues de validacion humana.",
+                "Re-ejecutar Evaluation Loop y comparar score antes/despues.",
+            ],
+        )
 
     def project_root(self) -> Path:
         current = Path(__file__).resolve()
@@ -184,6 +228,68 @@ class EvaluationHarnessService:
             next_actions=list(dict.fromkeys(next_actions)),
             latest_report=latest_report,
             curation_review=curation_review,
+        )
+
+    def _remediation_item(self, result: EvaluationCaseResult) -> EvaluationRemediationItem:
+        missing_signals = [
+            signal for signal in result.expected_signals if signal not in result.observed_signals
+        ]
+        diagnosis = self._diagnosis_for(result, missing_signals)
+        ideal_response = self._ideal_response_for(result, missing_signals)
+        return EvaluationRemediationItem(
+            case_id=result.case_id,
+            category=result.category,
+            score=result.score,
+            missing_signals=missing_signals,
+            diagnosis=diagnosis,
+            recommended_actions=[
+                f"Agregar cobertura explicita para: {', '.join(missing_signals)}."
+                if missing_signals
+                else "Ajustar el criterio de evaluacion o ampliar la respuesta ideal.",
+                "Crear un ejemplo corregido con contexto, respuesta ideal y tags de evaluacion.",
+                "Volver a ejecutar la suite y aceptar solo si el caso pasa sin degradar otras categorias.",
+            ],
+            proposed_learning_example=TrainingExampleRequest(
+                instruction=result.prompt,
+                input=f"Fallo de evaluacion {result.case_id}. Respuesta previa: {result.response_preview}",
+                response=ideal_response,
+                tags=[
+                    "evaluation_remediation",
+                    f"category:{result.category}",
+                    f"case:{result.case_id}",
+                ],
+                source="evaluation_remediation",
+                metadata={
+                    "case_id": result.case_id,
+                    "score": result.score,
+                    "missing_signals": missing_signals,
+                    "original_notes": result.notes,
+                },
+            ),
+        )
+
+    def _diagnosis_for(self, result: EvaluationCaseResult, missing_signals: list[str]) -> str:
+        if not missing_signals:
+            return "El caso fallo por score bajo aunque no hay senales faltantes explicitas."
+        return (
+            f"La respuesta cubrio {', '.join(result.observed_signals) or 'ninguna senal clave'}, "
+            f"pero omitio {', '.join(missing_signals)}."
+        )
+
+    def _ideal_response_for(self, result: EvaluationCaseResult, missing_signals: list[str]) -> str:
+        signal_text = ", ".join(missing_signals or result.expected_signals)
+        category_guidance = {
+            "reasoning": "Responder con pasos tecnicos concretos, limites y proximo paso verificable.",
+            "security": "Responder con seguridad defensiva, politicas, confirmaciones, bloqueo y auditoria.",
+            "patch": "Responder con plan de archivos, diff preview, tests y sin aplicar cambios automaticos.",
+            "voice": "Responder con autorizacion por voz, limites no biometricos y gates existentes.",
+            "learning": "Responder con curacion, ejemplos corregidos, QLoRA y validacion humana.",
+            "rag": "Responder citando memoria, vector store y recuperacion contextual.",
+            "devcore": "Responder con inspeccion, plan, verificacion y alcance limitado.",
+        }.get(result.category, "Responder de forma clara, verificable y accionable.")
+        return (
+            f"{category_guidance} Esta respuesta debe mencionar explicitamente: {signal_text}. "
+            "Debe ser breve, operacional y apta para usarse como ejemplo corregido de CEIBO CORE."
         )
 
     async def _run_generation_case(self, case: EvaluationCase) -> EvaluationCaseResult:
