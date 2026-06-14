@@ -20,5 +20,6 @@ build/
 training/runs/
 training/evaluations/
 training/reflections/
+training/dataset_expansions/
 *.log
 .DS_Store

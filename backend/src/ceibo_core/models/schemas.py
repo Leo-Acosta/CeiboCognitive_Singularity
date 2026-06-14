@@ -975,6 +975,58 @@ class TeacherSyntheticResponse(BaseModel):
     raw_output: str = ""
 
 
+class DatasetExpansionRequest(BaseModel):
+    target_examples: int = Field(default=100, ge=100, le=300)
+    focus_areas: list[str] = Field(default_factory=list)
+    difficulty: str = "balanced"
+    min_quality_score: int = Field(default=80, ge=0, le=100)
+    include_robotics: bool = True
+    include_code: bool = True
+    include_safety: bool = True
+    write_review_file: bool = True
+
+    @field_validator("focus_areas", mode="before")
+    @classmethod
+    def normalize_expansion_focus(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return []
+        normalized: list[str] = []
+        for item in value:
+            focus = str(item).strip().lower().replace(" ", "-")
+            if focus and focus not in normalized:
+                normalized.append(focus[:64])
+        return normalized[:12]
+
+
+class DatasetExpansionCandidate(BaseModel):
+    candidate_id: str
+    category: str
+    quality_score: int = Field(ge=0, le=100)
+    duplicate_risk: str = "low"
+    requires_human_review: bool = True
+    example: TrainingExample
+    review_notes: list[str] = Field(default_factory=list)
+
+
+class DatasetExpansionReport(BaseModel):
+    expansion_id: str
+    status: str
+    summary: str
+    requested_examples: int
+    generated_examples: int
+    accepted_candidates: int
+    rejected_candidates: int
+    average_quality: float = 0
+    category_counts: dict[str, int] = Field(default_factory=dict)
+    review_file: str | None = None
+    preview_candidates: list[DatasetExpansionCandidate] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class EvaluationCaseResult(BaseModel):
     case_id: str
     category: str

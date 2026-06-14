@@ -16,6 +16,7 @@ from ceibo_core.models.schemas import (
     AuthContext,
     ChatRequest,
     CognitiveReflectionRequest,
+    DatasetExpansionRequest,
     DatasetVersionRequest,
     DatasetCurationRequest,
     DevCoreExecutionRequest,
@@ -71,6 +72,7 @@ from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.autobiographical_memory import AutobiographicalMemoryService
 from ceibo_core.services.cognitive_reflection import CognitiveReflectionService
+from ceibo_core.services.dataset_expansion import DatasetExpansionService
 from ceibo_core.services.cognition import cognition_service
 from ceibo_core.services.dataset_curator import DatasetCuratorService
 from ceibo_core.services.evaluation_harness import (
@@ -1176,6 +1178,57 @@ async def test_cognitive_reflection_recommends_autobiographical_memory_for_decis
     finally:
         reflection_path.unlink(missing_ok=True)
         memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_dataset_expansion_builds_review_file_without_touching_main_dataset(monkeypatch):
+    dataset_path = Path(".tmp-tests") / f"dataset_expansion_main_{uuid4()}.jsonl"
+    review_dir = Path(".tmp-tests") / f"dataset_expansion_reviews_{uuid4()}"
+    monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
+    service = DatasetExpansionService(review_dir)
+
+    try:
+        report = await service.build(DatasetExpansionRequest(target_examples=100))
+
+        assert report.status == "review_required"
+        assert report.accepted_candidates == 100
+        assert report.average_quality >= 80
+        assert report.review_file is not None
+        assert Path(report.review_file).exists()
+        assert not dataset_path.exists()
+        assert report.category_counts["safety"] >= 1
+        assert report.preview_candidates[0].requires_human_review is True
+        assert "requires-human-review" in report.preview_candidates[0].example.tags
+    finally:
+        dataset_path.unlink(missing_ok=True)
+        for path in review_dir.glob("*"):
+            path.unlink(missing_ok=True)
+        review_dir.rmdir()
+
+
+@pytest.mark.asyncio
+async def test_dataset_expansion_latest_reads_generated_candidates():
+    review_dir = Path(".tmp-tests") / f"dataset_expansion_latest_{uuid4()}"
+    service = DatasetExpansionService(review_dir)
+
+    try:
+        built = await service.build(
+            DatasetExpansionRequest(
+                target_examples=100,
+                focus_areas=["robotics", "voice", "safety"],
+                min_quality_score=80,
+            )
+        )
+        latest = service.latest(limit=3)
+
+        assert latest.accepted_candidates == built.accepted_candidates
+        assert len(latest.preview_candidates) == 3
+        assert set(latest.category_counts).issubset({"robotics", "voice", "safety"})
+        assert latest.review_file == built.review_file
+    finally:
+        for path in review_dir.glob("*"):
+            path.unlink(missing_ok=True)
+        review_dir.rmdir()
 
 
 def test_learning_loop_rejects_empty_correction():

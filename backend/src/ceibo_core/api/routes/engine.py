@@ -9,6 +9,8 @@ from ceibo_core.models.schemas import (
     AutobiographicalMemoryState,
     CognitiveReflectionRequest,
     CognitiveReflectionState,
+    DatasetExpansionReport,
+    DatasetExpansionRequest,
     DatasetVersionRecord,
     DatasetVersionRequest,
     AuthContext,
@@ -58,6 +60,7 @@ from ceibo_core.models.schemas import (
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.autobiographical_memory import autobiographical_memory_service
 from ceibo_core.services.cognitive_reflection import cognitive_reflection_service
+from ceibo_core.services.dataset_expansion import dataset_expansion_service
 from ceibo_core.services.dataset_curator import dataset_curator_service
 from ceibo_core.services.evaluation_harness import evaluation_harness_service
 from ceibo_core.services.human_feedback_studio import human_feedback_studio_service
@@ -382,6 +385,18 @@ async def build_training_evidence(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/training/dataset-expansion/latest", response_model=DatasetExpansionReport)
+async def latest_dataset_expansion(limit: int = 8) -> DatasetExpansionReport:
+    return dataset_expansion_service.latest(limit=limit)
+
+
+@router.post("/training/dataset-expansion/build", response_model=DatasetExpansionReport)
+async def build_dataset_expansion(
+    request: DatasetExpansionRequest | None = None,
+) -> DatasetExpansionReport:
+    return await dataset_expansion_service.build(request or DatasetExpansionRequest())
 
 
 @router.post("/training/qlora/dry-run", response_model=TrainingDryRunReport)

@@ -423,6 +423,40 @@ type TrainingEvidenceBuilderReport = {
   created_at: string;
 };
 
+type DatasetExpansionCandidate = {
+  candidate_id: string;
+  category: string;
+  quality_score: number;
+  duplicate_risk: string;
+  requires_human_review: boolean;
+  example: {
+    instruction: string;
+    input: string;
+    response: string;
+    tags: string[];
+    source: string;
+    rating: LearningRating | null;
+  };
+  review_notes: string[];
+};
+
+type DatasetExpansionReport = {
+  expansion_id: string;
+  status: string;
+  summary: string;
+  requested_examples: number;
+  generated_examples: number;
+  accepted_candidates: number;
+  rejected_candidates: number;
+  average_quality: number;
+  category_counts: Record<string, number>;
+  review_file: string | null;
+  preview_candidates: DatasetExpansionCandidate[];
+  warnings: string[];
+  next_actions: string[];
+  created_at: string;
+};
+
 type CoreStatus = {
   environment: string;
   agents_online: number;
@@ -785,6 +819,7 @@ export default function Home() {
   const [trainingPromotionGate, setTrainingPromotionGate] = useState<TrainingPromotionGate | null>(null);
   const [trainingDryRun, setTrainingDryRun] = useState<TrainingDryRunReport | null>(null);
   const [trainingEvidence, setTrainingEvidence] = useState<TrainingEvidenceBuilderReport | null>(null);
+  const [datasetExpansion, setDatasetExpansion] = useState<DatasetExpansionReport | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
@@ -799,6 +834,7 @@ export default function Home() {
   const [isReviewingPromotionGate, setIsReviewingPromotionGate] = useState(false);
   const [isRunningTrainingDryRun, setIsRunningTrainingDryRun] = useState(false);
   const [isBuildingTrainingEvidence, setIsBuildingTrainingEvidence] = useState(false);
+  const [isBuildingDatasetExpansion, setIsBuildingDatasetExpansion] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
@@ -839,6 +875,7 @@ export default function Home() {
     void refreshEvaluationRemediation();
     void refreshRemediationOutcomes();
     void refreshTrainingPromotionGate();
+    void refreshDatasetExpansion();
   }, []);
 
   useEffect(() => {
@@ -1099,6 +1136,51 @@ export default function Home() {
       setConnection("offline");
     } finally {
       setIsBuildingTrainingEvidence(false);
+    }
+  }
+
+  async function refreshDatasetExpansion() {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/dataset-expansion/latest`);
+      if (!response.ok) {
+        throw new Error(`Dataset expansion latest responded ${response.status}`);
+      }
+      setDatasetExpansion((await response.json()) as DatasetExpansionReport);
+    } catch {
+      setDatasetExpansion(null);
+    }
+  }
+
+  async function buildDatasetExpansion() {
+    setIsBuildingDatasetExpansion(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/dataset-expansion/build`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_examples: 100,
+          min_quality_score: 80,
+          difficulty: "balanced",
+          include_robotics: true,
+          include_code: true,
+          include_safety: true,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Dataset expansion build responded ${response.status}`);
+      }
+      const data = (await response.json()) as DatasetExpansionReport;
+      setDatasetExpansion(data);
+      addHistory({
+        kind: "learning",
+        title: "dataset expansion",
+        detail: `${data.accepted_candidates} candidatos - calidad ${data.average_quality}/100`,
+      });
+    } catch {
+      setDatasetExpansion(null);
+      setConnection("offline");
+    } finally {
+      setIsBuildingDatasetExpansion(false);
     }
   }
 
@@ -2047,6 +2129,105 @@ export default function Home() {
                     "Voice v1 autoriza por frase hablada; las ordenes siguen pasando por seguridad."}
                 </p>
               </div>
+            </div>
+
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Sprint 43
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Dataset Expansion
+                  </h2>
+                </div>
+                <Wand2 className="h-5 w-5 text-sky-700" />
+              </div>
+
+              {datasetExpansion ? (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold">{datasetExpansion.status}</p>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium">
+                        {datasetExpansion.accepted_candidates}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5">{datasetExpansion.summary}</p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                      <p className="font-semibold text-slate-900">
+                        {datasetExpansion.average_quality}
+                      </p>
+                      <p className="text-slate-500">calidad</p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                      <p className="font-semibold text-slate-900">
+                        {Object.keys(datasetExpansion.category_counts).length}
+                      </p>
+                      <p className="text-slate-500">categorias</p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                      <p className="font-semibold text-slate-900">
+                        {datasetExpansion.rejected_candidates}
+                      </p>
+                      <p className="text-slate-500">descartes</p>
+                    </div>
+                  </div>
+
+                  {datasetExpansion.review_file ? (
+                    <p className="break-all rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                      {datasetExpansion.review_file}
+                    </p>
+                  ) : null}
+
+                  {datasetExpansion.preview_candidates[0] ? (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Preview
+                        </p>
+                        <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">
+                          {datasetExpansion.preview_candidates[0].quality_score}/100
+                        </span>
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-sm font-medium leading-6 text-slate-800">
+                        {datasetExpansion.preview_candidates[0].example.instruction}
+                      </p>
+                      <p className="mt-1 line-clamp-3 text-xs leading-5 text-slate-500">
+                        {datasetExpansion.preview_candidates[0].example.response}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {datasetExpansion.warnings[0] ? (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                      {datasetExpansion.warnings[0]}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                  Genera candidatos de entrenamiento en archivo separado. No se agregan al dataset
+                  principal hasta que los revises.
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void buildDatasetExpansion()}
+                disabled={isBuildingDatasetExpansion}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-800 transition hover:border-violet-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isBuildingDatasetExpansion ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Wand2 className="h-4 w-4" />
+                )}
+                Generar 100 candidatos
+              </button>
             </div>
 
             <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
