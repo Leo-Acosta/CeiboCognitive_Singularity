@@ -1008,6 +1008,25 @@ class TrainingRunnerReport(BaseModel):
     completed_at: datetime | None = None
 
 
+class TrainingDryRunReport(BaseModel):
+    run_id: str
+    allowed: bool
+    status: TrainingRunStatus
+    summary: str
+    config_path: str
+    dataset_path: str
+    output_dir: str
+    base_model: str
+    command: list[str] = Field(default_factory=list)
+    dataset_examples: int = 0
+    estimated_steps: int = 1
+    gate: TrainingPromotionGate
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class HardwareProfile(BaseModel):
     gpu_vram_gb: int = Field(default=0, ge=0)
     system_ram_gb: int = Field(default=16, ge=1)

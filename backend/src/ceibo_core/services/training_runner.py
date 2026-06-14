@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from ceibo_core.models.schemas import (
     QloraTrainingRequest,
+    TrainingDryRunReport,
+    TrainingPromotionGate,
     TrainingRunnerDependency,
     TrainingRunnerReport,
     TrainingRunStatus,
@@ -15,7 +17,13 @@ from ceibo_core.models.schemas import (
 
 class TrainingRunnerService:
     def project_root(self) -> Path:
-        return Path(__file__).resolve().parents[4]
+        current = Path(__file__).resolve()
+        for parent in current.parents:
+            if (parent / "docker-compose.yml").exists():
+                return parent
+            if (parent / "pyproject.toml").exists() and (parent / "training").exists():
+                return parent
+        return current.parents[4]
 
     def runs_dir(self) -> Path:
         return self.project_root() / "training" / "runs"
@@ -53,6 +61,61 @@ class TrainingRunnerService:
                 }
             )
         return report
+
+    def dry_run(
+        self,
+        request: QloraTrainingRequest,
+        gate: TrainingPromotionGate,
+    ) -> TrainingDryRunReport:
+        run_id = self._new_run_id(prefix="dryrun")
+        command = self._build_command(request, run_id=run_id, preflight_only=True)
+        config_path = self._resolve_project_path(request.config_path)
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        dataset_path = self._resolve_project_path(request.dataset_path or config["dataset"])
+        output_dir = self._resolve_project_path(request.output_dir or config["output_dir"])
+        dataset_examples = self._count_jsonl(dataset_path)
+        warnings = list(gate.warnings)
+        blockers = list(gate.blockers)
+
+        if dataset_examples == 0:
+            blockers.append("El dataset resuelto no contiene ejemplos.")
+        if request.local_files_only is not True:
+            warnings.append("Dry run recomienda local_files_only=true para evitar descargas.")
+        if (request.max_steps or 1) > 10:
+            warnings.append("Dry run recomienda max_steps <= 10 hasta tener evidencia estable.")
+
+        allowed = gate.allowed and not blockers
+        status = TrainingRunStatus.READY if allowed else TrainingRunStatus.BLOCKED
+        if allowed:
+            summary = "Dry run listo: se puede ejecutar preflight QLoRA sin entrenamiento real."
+            next_actions = [
+                "Ejecutar /training/qlora/preflight con la misma configuracion.",
+                "Revisar manifest y logs antes de cualquier entrenamiento real.",
+            ]
+        else:
+            summary = "Dry run bloqueado: falta evidencia suficiente para preflight seguro."
+            next_actions = [
+                "Resolver blockers del Promotion Gate.",
+                "No ejecutar preflight ni entrenamiento hasta que el dry run quede listo.",
+            ]
+
+        return TrainingDryRunReport(
+            run_id=run_id,
+            allowed=allowed,
+            status=status,
+            summary=summary,
+            config_path=str(config_path),
+            dataset_path=str(dataset_path),
+            output_dir=str(output_dir),
+            base_model=request.base_model or config["base_model"],
+            command=command,
+            dataset_examples=dataset_examples,
+            estimated_steps=request.max_steps or 1,
+            gate=gate,
+            blockers=list(dict.fromkeys(blockers)),
+            warnings=list(dict.fromkeys(warnings)),
+            next_actions=next_actions,
+        )
 
     def start(self, request: QloraTrainingRequest) -> TrainingRunnerReport:
         run_id = self._new_run_id()
@@ -154,8 +217,8 @@ class TrainingRunnerService:
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
 
-    def _new_run_id(self) -> str:
-        return f"qlora-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
+    def _new_run_id(self, prefix: str = "qlora") -> str:
+        return f"{prefix}-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
 
     def _resolve_project_path(self, value: str | Path) -> Path:
         path = Path(value)

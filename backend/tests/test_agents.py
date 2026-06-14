@@ -48,10 +48,13 @@ from ceibo_core.models.schemas import (
     TeacherReviewRequest,
     TeacherSyntheticRequest,
     QloraTrainingRequest,
+    TrainingPromotionEvidence,
+    TrainingPromotionGate,
     TrainingExample,
     TrainingFeedbackRating,
     TrainingFeedbackRequest,
     TrainingPlanRequest,
+    TrainingRunStatus,
     UserRole,
     VoiceAuthorizationRequest,
     VoiceCommandRequest,
@@ -1113,6 +1116,85 @@ def test_training_runner_builds_qlora_preflight_command():
     assert "--preflight-only" in command
     assert "--local-files-only" in command
     assert "--max-steps" in command
+
+
+def test_training_runner_dry_run_blocks_when_gate_blocks(tmp_path):
+    service = TrainingRunnerService()
+    dataset_path = tmp_path / "dataset.jsonl"
+    config_path = tmp_path / "config.json"
+    output_dir = tmp_path / "out"
+    dataset_path.write_text("", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "dataset": str(dataset_path),
+                "output_dir": str(output_dir),
+                "base_model": "local-model",
+            }
+        ),
+        encoding="utf-8",
+    )
+    gate = TrainingPromotionGate(
+        allowed=False,
+        level="promotion_blocked",
+        summary="blocked",
+        evidence=TrainingPromotionEvidence(),
+        blockers=["No hay evaluacion reciente."],
+    )
+
+    report = service.dry_run(QloraTrainingRequest(config_path=str(config_path)), gate)
+
+    assert report.allowed is False
+    assert report.status == TrainingRunStatus.BLOCKED
+    assert "No hay evaluacion reciente." in report.blockers
+    assert "El dataset resuelto no contiene ejemplos." in report.blockers
+    assert "--preflight-only" in report.command
+    assert not (output_dir / "manifest.json").exists()
+
+
+def test_training_runner_dry_run_allows_preflight_with_gate(tmp_path):
+    service = TrainingRunnerService()
+    dataset_path = tmp_path / "dataset.jsonl"
+    config_path = tmp_path / "config.json"
+    output_dir = tmp_path / "out"
+    _write_training_dataset(dataset_path, total=25, corrected=3)
+    config_path.write_text(
+        json.dumps(
+            {
+                "dataset": str(dataset_path),
+                "output_dir": str(output_dir),
+                "base_model": "local-model",
+            }
+        ),
+        encoding="utf-8",
+    )
+    gate = TrainingPromotionGate(
+        allowed=True,
+        level="promotion_preflight_allowed",
+        summary="ready",
+        evidence=TrainingPromotionEvidence(
+            evaluation_status="passed",
+            evaluation_score=92,
+            usable_examples=25,
+            corrected_examples=3,
+            accepted_outcomes=1,
+        ),
+    )
+
+    report = service.dry_run(
+        QloraTrainingRequest(
+            config_path=str(config_path),
+            max_steps=1,
+            local_files_only=True,
+        ),
+        gate,
+    )
+
+    assert report.allowed is True
+    assert report.status == TrainingRunStatus.READY
+    assert report.dataset_examples == 25
+    assert report.base_model == "local-model"
+    assert report.next_actions[0].startswith("Ejecutar /training/qlora/preflight")
 
 
 def test_training_runner_prefers_local_qlora_venv(monkeypatch):

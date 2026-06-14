@@ -287,6 +287,25 @@ type TrainingPromotionGate = {
   next_actions: string[];
 };
 
+type TrainingDryRunReport = {
+  run_id: string;
+  allowed: boolean;
+  status: string;
+  summary: string;
+  config_path: string;
+  dataset_path: string;
+  output_dir: string;
+  base_model: string;
+  command: string[];
+  dataset_examples: number;
+  estimated_steps: number;
+  gate: TrainingPromotionGate;
+  blockers: string[];
+  warnings: string[];
+  next_actions: string[];
+  created_at: string;
+};
+
 type CoreStatus = {
   environment: string;
   agents_online: number;
@@ -642,6 +661,7 @@ export default function Home() {
   const [remediationApplyResult, setRemediationApplyResult] = useState<EvaluationRemediationApplyResponse | null>(null);
   const [remediationOutcomeReview, setRemediationOutcomeReview] = useState<EvaluationRemediationOutcomeReview | null>(null);
   const [trainingPromotionGate, setTrainingPromotionGate] = useState<TrainingPromotionGate | null>(null);
+  const [trainingDryRun, setTrainingDryRun] = useState<TrainingDryRunReport | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
@@ -651,6 +671,7 @@ export default function Home() {
   const [isPreparingRemediation, setIsPreparingRemediation] = useState(false);
   const [isApplyingRemediation, setIsApplyingRemediation] = useState(false);
   const [isReviewingPromotionGate, setIsReviewingPromotionGate] = useState(false);
+  const [isRunningTrainingDryRun, setIsRunningTrainingDryRun] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
@@ -860,6 +881,33 @@ export default function Home() {
       setTrainingPromotionGate(null);
     } finally {
       setIsReviewingPromotionGate(false);
+    }
+  }
+
+  async function runTrainingDryRun() {
+    setIsRunningTrainingDryRun(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/qlora/dry-run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_steps: 1, local_files_only: true }),
+      });
+      if (!response.ok) {
+        throw new Error(`Training dry run responded ${response.status}`);
+      }
+      const data = (await response.json()) as TrainingDryRunReport;
+      setTrainingDryRun(data);
+      setTrainingPromotionGate(data.gate);
+      addHistory({
+        kind: "learning",
+        title: data.allowed ? "dry run listo" : "dry run bloqueado",
+        detail: `${data.status} - ${data.dataset_examples} ejemplos`,
+      });
+    } catch {
+      setTrainingDryRun(null);
+      setConnection("offline");
+    } finally {
+      setIsRunningTrainingDryRun(false);
     }
   }
 
@@ -1868,6 +1916,39 @@ export default function Home() {
                   )}
                   Revisar promotion gate
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => void runTrainingDryRun()}
+                  disabled={isRunningTrainingDryRun}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {isRunningTrainingDryRun ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Terminal className="h-4 w-4" />
+                  )}
+                  Dry run QLoRA
+                </button>
+
+                {trainingDryRun ? (
+                  <div
+                    className={`rounded-md border px-3 py-2 text-xs leading-5 ${
+                      trainingDryRun.allowed
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : "border-amber-200 bg-amber-50 text-amber-800"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold">{trainingDryRun.status}</p>
+                      <span>{trainingDryRun.dataset_examples} ejemplos</span>
+                    </div>
+                    <p className="mt-1">{trainingDryRun.summary}</p>
+                    <p className="mt-1 truncate text-slate-600">
+                      Modelo: {trainingDryRun.base_model}
+                    </p>
+                  </div>
+                ) : null}
               </div>
             </div>
 

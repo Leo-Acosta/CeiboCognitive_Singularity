@@ -37,6 +37,7 @@ from ceibo_core.models.schemas import (
     TeacherSyntheticRequest,
     TeacherSyntheticResponse,
     TrainingDatasetStats,
+    TrainingDryRunReport,
     TrainingExample,
     TrainingExampleRequest,
     TrainingFeedbackRating,
@@ -306,6 +307,35 @@ async def training_promotion_gate() -> TrainingPromotionGate:
         return await evaluation_harness_service.training_promotion_gate()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/training/qlora/dry-run", response_model=TrainingDryRunReport)
+async def qlora_dry_run(
+    request: QloraTrainingRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.START_TRAINING, "training_runner")
+    ),
+) -> TrainingDryRunReport:
+    try:
+        gate = await evaluation_harness_service.training_promotion_gate()
+        report = training_runner_service.dry_run(request, gate)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="training.qlora_dry_run",
+        actor="training_runner",
+        action=SecurityAction.START_TRAINING,
+        allowed=report.allowed,
+        payload={
+            "run_id": report.run_id,
+            "status": report.status.value,
+            "allowed": report.allowed,
+        },
+    )
+    return report
 
 
 @router.get("/training/stats", response_model=TrainingDatasetStats)

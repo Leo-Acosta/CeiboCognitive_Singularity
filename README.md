@@ -114,6 +114,7 @@ API:
 - `GET /api/v1/engine/teacher/status`
 - `POST /api/v1/engine/teacher/review`
 - `POST /api/v1/engine/teacher/synthetic-examples`
+- `POST /api/v1/engine/training/qlora/dry-run`
 - `POST /api/v1/engine/training/qlora/preflight`
 - `POST /api/v1/engine/training/qlora/start`
 - `GET /api/v1/engine/training/qlora/jobs`
