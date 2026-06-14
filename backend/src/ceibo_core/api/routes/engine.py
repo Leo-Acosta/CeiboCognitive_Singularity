@@ -11,6 +11,8 @@ from ceibo_core.models.schemas import (
     EngineGenerateRequest,
     EngineGenerateResponse,
     EngineStatus,
+    EvaluationRemediationApplyRequest,
+    EvaluationRemediationApplyResponse,
     EvaluationRemediationPlan,
     EvaluationSuiteReport,
     EvaluationTrainingGate,
@@ -95,6 +97,39 @@ async def evaluation_training_gate() -> EvaluationTrainingGate:
 @router.get("/evaluations/remediation", response_model=EvaluationRemediationPlan)
 async def evaluation_remediation_plan() -> EvaluationRemediationPlan:
     return evaluation_harness_service.remediation_plan()
+
+
+@router.post(
+    "/evaluations/remediation/apply",
+    response_model=EvaluationRemediationApplyResponse,
+)
+async def apply_evaluation_remediation(
+    request: EvaluationRemediationApplyRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.RUN_EVALUATION, "evaluation_harness")
+    ),
+) -> EvaluationRemediationApplyResponse:
+    try:
+        response = await evaluation_harness_service.apply_remediation(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="evaluation.remediation_apply",
+        actor="evaluation_harness",
+        action=SecurityAction.RUN_EVALUATION,
+        allowed=response.applied,
+        payload={
+            "case_id": response.case_id,
+            "applied": response.applied,
+            "promotable": response.promotable,
+            "score_delta": response.score_delta,
+        },
+    )
+    return response
 
 
 @router.post("/generate", response_model=EngineGenerateResponse)

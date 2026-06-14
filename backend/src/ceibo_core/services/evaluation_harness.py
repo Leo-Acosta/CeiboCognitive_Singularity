@@ -14,17 +14,24 @@ from ceibo_core.models.schemas import (
     DevCorePatchPlannerRequest,
     DevCorePlanRequest,
     EvaluationCaseResult,
+    EvaluationRemediationApplyRequest,
+    EvaluationRemediationApplyResponse,
     EvaluationRemediationItem,
     EvaluationRemediationPlan,
     EvaluationSuiteReport,
     EvaluationTrainingGate,
+    LearningEventRequest,
     TrainingExampleRequest,
+    TrainingFeedbackRating,
 )
 from ceibo_core.services.dataset_curator import dataset_curator_service
 from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.devcore_patch_planner import devcore_patch_planner
 from ceibo_core.services.memory import memory_service
+from ceibo_core.services.training_data import training_data_service
 from ceibo_core.services.voice_control import voice_control_service
+
+CONFIRM_REMEDIATION_PHRASE = "APLICAR REMEDIACION CEIBO"
 
 
 @dataclass(frozen=True)
@@ -141,6 +148,106 @@ class EvaluationHarnessService:
                 "Guardar ejemplos corregidos en Learning Loop solo despues de validacion humana.",
                 "Re-ejecutar Evaluation Loop y comparar score antes/despues.",
             ],
+        )
+
+    async def apply_remediation(
+        self, request: EvaluationRemediationApplyRequest
+    ) -> EvaluationRemediationApplyResponse:
+        before_report = self.latest()
+        if before_report is None:
+            raise ValueError("No hay evaluacion reciente para remediar.")
+
+        plan = self.remediation_plan()
+        item = next(
+            (candidate for candidate in plan.items if candidate.case_id == request.case_id),
+            None,
+        )
+        if item is None:
+            raise ValueError(f"No hay caso fallido remediable con id {request.case_id}.")
+
+        before_case = self._case_by_id(before_report, request.case_id)
+        if request.confirmation != CONFIRM_REMEDIATION_PHRASE:
+            return EvaluationRemediationApplyResponse(
+                applied=False,
+                case_id=request.case_id,
+                confirmation_required=CONFIRM_REMEDIATION_PHRASE,
+                message="Remediacion bloqueada: falta confirmacion humana exacta.",
+                before_report=before_report,
+                case_before_passed=before_case.passed if before_case else None,
+                next_actions=[
+                    f"Escribir exactamente: {CONFIRM_REMEDIATION_PHRASE}.",
+                    "Revisar el ejemplo corregido antes de aplicar.",
+                    "No se guardo ningun dato de entrenamiento.",
+                ],
+            )
+
+        corrected_response = (
+            request.corrected_response or item.proposed_learning_example.response
+        ).strip()
+        learning_event = await training_data_service.append_learning_event(
+            LearningEventRequest(
+                instruction=item.proposed_learning_example.instruction,
+                assistant_response=item.proposed_learning_example.input,
+                rating=TrainingFeedbackRating.CORRECTED,
+                corrected_response=corrected_response,
+                source="evaluation_remediation_gate",
+                tags=[
+                    *item.proposed_learning_example.tags,
+                    "sprint35",
+                    "human-confirmed",
+                    "remediation-apply-gate",
+                ],
+                metadata={
+                    **item.proposed_learning_example.metadata,
+                    "before_run_id": before_report.run_id,
+                    "confirmation_gate": "sprint35_remediation_apply",
+                    "confirmation_phrase": CONFIRM_REMEDIATION_PHRASE,
+                    "rerun_requested": request.rerun_evaluation,
+                },
+            )
+        )
+
+        after_report = await self.run() if request.rerun_evaluation else None
+        after_case = self._case_by_id(after_report, request.case_id) if after_report else None
+        score_delta = (
+            after_report.average_score - before_report.average_score if after_report else None
+        )
+        promotable = bool(
+            learning_event.saved
+            and after_report
+            and after_report.status == "passed"
+            and after_report.average_score >= before_report.average_score
+            and (after_case.passed if after_case else False)
+        )
+        next_actions = [
+            "Revisar el evento guardado en Learning Curation.",
+            "Mantener bloqueado entrenamiento si el score no mejora.",
+        ]
+        if after_report:
+            next_actions.insert(0, "Comparar el reporte antes/despues en Evaluation Loop.")
+            if not promotable:
+                next_actions.append(
+                    "No promover automaticamente: falta mejora verificable o suite completa en passed."
+                )
+        else:
+            next_actions.insert(0, "Re-ejecutar Evaluation Loop para medir impacto.")
+
+        return EvaluationRemediationApplyResponse(
+            applied=True,
+            case_id=request.case_id,
+            confirmation_required=CONFIRM_REMEDIATION_PHRASE,
+            message=(
+                "Remediacion aplicada como evento corregido; promocion bloqueada "
+                "hasta verificacion positiva."
+            ),
+            saved_learning_event=learning_event,
+            before_report=before_report,
+            after_report=after_report,
+            score_delta=score_delta,
+            case_before_passed=before_case.passed if before_case else None,
+            case_after_passed=after_case.passed if after_case else None,
+            promotable=promotable,
+            next_actions=next_actions,
         )
 
     def project_root(self) -> Path:
@@ -428,6 +535,13 @@ class EvaluationHarnessService:
             )
             for category in categories
         }
+
+    def _case_by_id(
+        self, report: EvaluationSuiteReport | None, case_id: str
+    ) -> EvaluationCaseResult | None:
+        if report is None:
+            return None
+        return next((result for result in report.results if result.case_id == case_id), None)
 
 
 evaluation_harness_service = EvaluationHarnessService()

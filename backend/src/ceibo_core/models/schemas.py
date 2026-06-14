@@ -875,6 +875,35 @@ class EvaluationRemediationPlan(BaseModel):
     next_actions: list[str] = Field(default_factory=list)
 
 
+class EvaluationRemediationApplyRequest(BaseModel):
+    case_id: str = Field(min_length=1)
+    confirmation: str = Field(min_length=1)
+    corrected_response: str | None = None
+    rerun_evaluation: bool = True
+
+    @field_validator("case_id", "confirmation", "corrected_response", mode="before")
+    @classmethod
+    def strip_apply_text(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class EvaluationRemediationApplyResponse(BaseModel):
+    applied: bool
+    case_id: str
+    confirmation_required: str
+    message: str
+    saved_learning_event: LearningEventResponse | None = None
+    before_report: EvaluationSuiteReport | None = None
+    after_report: EvaluationSuiteReport | None = None
+    score_delta: int | None = None
+    case_before_passed: bool | None = None
+    case_after_passed: bool | None = None
+    promotable: bool = False
+    next_actions: list[str] = Field(default_factory=list)
+
+
 class TrainingRunStatus(StrEnum):
     READY = "ready"
     BLOCKED = "blocked"

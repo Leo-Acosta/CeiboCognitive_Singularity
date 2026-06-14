@@ -216,6 +216,21 @@ type EvaluationRemediationPlan = {
   next_actions: string[];
 };
 
+type EvaluationRemediationApplyResponse = {
+  applied: boolean;
+  case_id: string;
+  confirmation_required: string;
+  message: string;
+  saved_learning_event: LearningEventResponse | null;
+  before_report: EvaluationSuiteReport | null;
+  after_report: EvaluationSuiteReport | null;
+  score_delta: number | null;
+  case_before_passed: boolean | null;
+  case_after_passed: boolean | null;
+  promotable: boolean;
+  next_actions: string[];
+};
+
 type CoreStatus = {
   environment: string;
   agents_online: number;
@@ -567,6 +582,8 @@ export default function Home() {
   const [evaluationReport, setEvaluationReport] = useState<EvaluationSuiteReport | null>(null);
   const [evaluationGate, setEvaluationGate] = useState<EvaluationTrainingGate | null>(null);
   const [evaluationRemediation, setEvaluationRemediation] = useState<EvaluationRemediationPlan | null>(null);
+  const [remediationConfirmation, setRemediationConfirmation] = useState("");
+  const [remediationApplyResult, setRemediationApplyResult] = useState<EvaluationRemediationApplyResponse | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
   const [isSending, setIsSending] = useState(false);
   const [isSavingLearning, setIsSavingLearning] = useState(false);
@@ -574,6 +591,7 @@ export default function Home() {
   const [isExportingCuration, setIsExportingCuration] = useState(false);
   const [isRunningEvaluation, setIsRunningEvaluation] = useState(false);
   const [isPreparingRemediation, setIsPreparingRemediation] = useState(false);
+  const [isApplyingRemediation, setIsApplyingRemediation] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
   const [isPreparingExecution, setIsPreparingExecution] = useState(false);
   const [isPlanningPatch, setIsPlanningPatch] = useState(false);
@@ -752,6 +770,49 @@ export default function Home() {
       setEvaluationRemediation(null);
     } finally {
       setIsPreparingRemediation(false);
+    }
+  }
+
+  async function applyEvaluationRemediation(caseId: string) {
+    setIsApplyingRemediation(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/evaluations/remediation/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          case_id: caseId,
+          confirmation: remediationConfirmation,
+          rerun_evaluation: true,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Remediation apply responded ${response.status}`);
+      }
+      const data = (await response.json()) as EvaluationRemediationApplyResponse;
+      setRemediationApplyResult(data);
+      setEvaluationMessage(
+        data.after_report
+          ? `${data.after_report.average_score}/100 - delta ${data.score_delta ?? 0}`
+          : data.message
+      );
+      addHistory({
+        kind: "learning",
+        title: data.applied ? "remediacion aplicada" : "remediacion bloqueada",
+        detail: `${data.case_id} - ${data.message}`,
+      });
+      if (data.after_report) {
+        setEvaluationReport(data.after_report);
+      }
+      void refreshEvaluationGate();
+      void refreshEvaluationRemediation();
+      void reviewLearningCuration();
+      void refreshCognition();
+    } catch {
+      setRemediationApplyResult(null);
+      setEvaluationMessage("No pude aplicar la remediacion.");
+      setConnection("offline");
+    } finally {
+      setIsApplyingRemediation(false);
     }
   }
 
@@ -2084,6 +2145,62 @@ export default function Home() {
                   {isPreparingRemediation ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                   Preparar remediacion
                 </button>
+
+                {evaluationRemediation?.items[0] ? (
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Sprint 35
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
+                          Apply Gate
+                        </p>
+                      </div>
+                      <ShieldCheck className="h-5 w-5 text-sky-700" />
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-slate-500">
+                      Requiere confirmacion exacta antes de guardar el ejemplo corregido y re-evaluar.
+                    </p>
+                    <input
+                      value={remediationConfirmation}
+                      onChange={(event) => setRemediationConfirmation(event.target.value)}
+                      placeholder="APLICAR REMEDIACION CEIBO"
+                      className="mt-3 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-sky-400 focus:bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void applyEvaluationRemediation(evaluationRemediation.items[0].case_id)
+                      }
+                      disabled={isApplyingRemediation}
+                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md bg-sky-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-950 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {isApplyingRemediation ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4" />
+                      )}
+                      Aplicar primer caso
+                    </button>
+                    {remediationApplyResult ? (
+                      <div
+                        className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${
+                          remediationApplyResult.applied
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : "border-amber-200 bg-amber-50 text-amber-800"
+                        }`}
+                      >
+                        <p className="font-semibold">{remediationApplyResult.case_id}</p>
+                        <p className="mt-1">{remediationApplyResult.message}</p>
+                        <p className="mt-1">
+                          Delta: {remediationApplyResult.score_delta ?? "pendiente"} · Promocion:{" "}
+                          {remediationApplyResult.promotable ? "habilitable" : "bloqueada"}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
 

@@ -92,6 +92,7 @@ API:
 - `GET /api/v1/engine/evaluations/latest`
 - `GET /api/v1/engine/evaluations/training-gate`
 - `GET /api/v1/engine/evaluations/remediation`
+- `POST /api/v1/engine/evaluations/remediation/apply`
 - `GET /api/v1/engine/models`
 - `POST /api/v1/engine/models/recommend`
 - `GET /api/v1/engine/registry`
