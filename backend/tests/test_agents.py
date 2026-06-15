@@ -312,9 +312,43 @@ async def test_chat_tool_router_answers_project_status_from_memory_context():
     )
 
     assert result is not None
-    assert result.tool_name == "project.status"
+    assert result.tool_name == "project.knowledge.project_overview"
     assert "nucleo cognitivo" in result.answer
     assert "futuro robot" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_project_capabilities():
+    result = await ChatToolRouter().route("que capacidades tienes este proyecto?")
+
+    assert result is not None
+    assert result.tool_name == "project.knowledge.project_capabilities"
+    assert "DevCore" in result.answer
+    assert "Dataset Expansion" in "\n".join(result.next_steps)
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_project_modules_and_sprint():
+    router = ChatToolRouter()
+
+    modules = await router.route("que modulos tiene CEIBO?")
+    sprint = await router.route("en que sprint estamos?")
+
+    assert modules is not None
+    assert modules.tool_name == "project.knowledge.project_modules"
+    assert "`backend/`" in modules.answer
+    assert sprint is not None
+    assert sprint.tool_name == "project.knowledge.project_sprints"
+    assert "Sprint 45" in sprint.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_project_limits():
+    result = await ChatToolRouter().route("que le falta a CEIBO?")
+
+    assert result is not None
+    assert result.tool_name == "project.knowledge.project_limits"
+    assert "no una mente humana ni AGI" in result.answer
 
 
 def test_weather_service_extracts_explicit_location():

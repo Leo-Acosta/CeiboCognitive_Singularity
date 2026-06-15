@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 from ceibo_core.core.config import settings
+from ceibo_core.services.project_knowledge import project_knowledge_service
 from ceibo_core.services.weather import weather_service
 
 
@@ -40,7 +41,7 @@ class ChatToolRouter:
         if self._is_docker_status(normalized):
             return self._docker_status()
         if self._is_project_status(normalized):
-            return self._project_status(context or [])
+            return self._project_status(message, context or [])
         return None
 
     def _is_weather(self, message: str) -> bool:
@@ -75,7 +76,19 @@ class ChatToolRouter:
                 "estado del proyecto",
                 "estado de ceibo",
                 "capacidades tiene",
+                "capacidades tienes",
+                "tienes este proyecto",
+                "que puede hacer",
+                "que puedes hacer",
+                "funcionalidades",
                 "que modulos tiene",
+                "modulos tiene",
+                "estructura del proyecto",
+                "arquitectura del proyecto",
+                "capas de ceibo",
+                "que le falta",
+                "que falta",
+                "limites de ceibo",
                 "que sprint",
                 "en que estamos",
             )
@@ -206,27 +219,15 @@ class ChatToolRouter:
             audit_notes=["tool=docker.status", "mode=read_only_local"],
         )
 
-    def _project_status(self, context: list[str]) -> ChatToolResult:
-        memory_hint = next((item for item in context if "nucleo cognitivo" in item.lower()), "")
-        answer = (
-            "CEIBO CORE es un nucleo cognitivo local para interpretar pedidos, recordar decisiones, "
-            "usar herramientas controladas, generar datasets, evaluar respuestas y preparar entrenamiento. "
-            "Hoy ya funciona como sistema local con API, frontend, memoria, DevCore, safety gates, "
-            "dataset expansion, evaluation loop, voz autorizada inicial y herramientas de chat."
-        )
-        if memory_hint:
-            answer += " Mantiene como objetivo central servir de logica y discernimiento para un futuro robot."
+    def _project_status(self, message: str, context: list[str]) -> ChatToolResult:
+        answer = project_knowledge_service.answer(message, context)
         return ChatToolResult(
-            tool_name="project.status",
+            tool_name=f"project.knowledge.{answer.topic}",
             status="ok",
-            answer=answer,
-            focus="estado del proyecto",
-            next_steps=[
-                "Seguir ampliando herramientas del chat con respuestas reales.",
-                "Conectar Project Knowledge Answers para responder sobre modulos, sprints y capacidades.",
-                "Mantener gates de seguridad antes de ejecucion real.",
-            ],
-            audit_notes=["tool=project.status", "mode=read_only_local"],
+            answer=answer.answer,
+            focus="conocimiento del proyecto",
+            next_steps=[*answer.evidence, *answer.next_steps],
+            audit_notes=[f"tool=project.knowledge", f"topic={answer.topic}", "mode=read_only_local"],
         )
 
     def _run_read_only(self, command: list[str]) -> "_CommandResult":
