@@ -31,7 +31,7 @@ class ChatToolRouter:
         self.repo_root = repo_root or self._default_repo_root()
 
     async def route(self, message: str, context: list[str] | None = None) -> ChatToolResult | None:
-        normalized = message.lower()
+        normalized = project_knowledge_service.normalize(message)
         if self._is_weather(normalized):
             return await self._weather(message)
         if self._is_datetime(normalized):
@@ -69,30 +69,7 @@ class ChatToolRouter:
         return any(keyword in message for keyword in ("docker", "contenedor", "contenedores", "servicios"))
 
     def _is_project_status(self, message: str) -> bool:
-        return any(
-            phrase in message
-            for phrase in (
-                "que hace este proyecto",
-                "estado del proyecto",
-                "estado de ceibo",
-                "capacidades tiene",
-                "capacidades tienes",
-                "tienes este proyecto",
-                "que puede hacer",
-                "que puedes hacer",
-                "funcionalidades",
-                "que modulos tiene",
-                "modulos tiene",
-                "estructura del proyecto",
-                "arquitectura del proyecto",
-                "capas de ceibo",
-                "que le falta",
-                "que falta",
-                "limites de ceibo",
-                "que sprint",
-                "en que estamos",
-            )
-        )
+        return project_knowledge_service.should_answer(message)
 
     async def _weather(self, message: str) -> ChatToolResult:
         observation = await weather_service.current_weather(message)
