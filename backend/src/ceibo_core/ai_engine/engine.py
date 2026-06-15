@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from ceibo_core.core.config import settings
 from ceibo_core.models.schemas import EngineGenerateResponse, EngineStatus
+from ceibo_core.services.chat_tools import ChatToolResult, chat_tool_router
 from ceibo_core.services.weather import weather_service
 
 
@@ -73,6 +74,9 @@ class CeiboAIEngine:
 
     async def _compose_response(self, user_message: str, intents: list[str], context: list[str]) -> str:
         parser_context = next((item for item in context if item.startswith("DevCore parse:")), "")
+        tool_result = await chat_tool_router.route(user_message, context)
+        if tool_result is not None:
+            return self._tool_response(tool_result, context)
         if "intent=create_endpoint" in parser_context:
             focus = "endpoint backend"
             answer = (
@@ -185,6 +189,23 @@ class CeiboAIEngine:
             f"Foco: {focus}.\n"
             f"{memory_note}\n\n"
             f"Siguientes pasos recomendados:\n{steps}"
+        )
+
+    def _tool_response(self, result: ChatToolResult, context: list[str]) -> str:
+        memory_note = (
+            "Use contexto reciente para mantener continuidad."
+            if context
+            else "No necesite memoria previa para esta respuesta."
+        )
+        steps = "\n".join(f"- {step}" for step in result.next_steps)
+        audit = "\n".join(f"- {note}" for note in result.audit_notes)
+        audit_block = f"\n\nHerramienta usada:\n{audit}" if audit else ""
+        return (
+            f"{result.answer}\n\n"
+            f"Foco: {result.focus}.\n"
+            f"{memory_note}\n\n"
+            f"Siguientes pasos recomendados:\n{steps}"
+            f"{audit_block}"
         )
 
     def _weather_answer(self, observation) -> tuple[str, list[str]]:

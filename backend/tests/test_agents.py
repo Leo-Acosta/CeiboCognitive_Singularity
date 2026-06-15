@@ -72,6 +72,7 @@ from ceibo_core.models.schemas import (
 from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
 from ceibo_core.services.autobiographical_memory import AutobiographicalMemoryService
+from ceibo_core.services.chat_tools import ChatToolRouter
 from ceibo_core.services.cognitive_reflection import CognitiveReflectionService
 from ceibo_core.services.dataset_expansion import DatasetExpansionService
 from ceibo_core.services.cognition import cognition_service
@@ -291,6 +292,29 @@ async def test_ceibo_engine_answers_weather_with_tool(monkeypatch):
     assert "22.5°C" in result.response
     assert "Open-Meteo" in result.response
     assert "weather" in result.intents
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_time_without_external_provider():
+    result = await ChatToolRouter().route("que hora es?")
+
+    assert result is not None
+    assert result.tool_name == "time.local"
+    assert result.status == "ok"
+    assert "America/Buenos_Aires" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_project_status_from_memory_context():
+    result = await ChatToolRouter().route(
+        "que hace este proyecto?",
+        context=["goal: Construir CEIBO como nucleo cognitivo local para un futuro robot."],
+    )
+
+    assert result is not None
+    assert result.tool_name == "project.status"
+    assert "nucleo cognitivo" in result.answer
+    assert "futuro robot" in result.answer
 
 
 def test_weather_service_extracts_explicit_location():
