@@ -526,6 +526,13 @@ async def test_chat_tool_router_answers_bus_ticket_links():
     assert "Cordoba" in result.answer
 
 
+@pytest.mark.asyncio
+async def test_chat_tool_router_does_not_route_training_as_travel():
+    result = await ChatToolRouter().route("quiero entrenar mi propia IA local con dataset")
+
+    assert result is None
+
+
 def test_travel_booking_service_extracts_route_and_passengers():
     search = travel_booking_service.search("tren de Madrid a Barcelona el 2026-09-01 para 3 pasajeros")
 

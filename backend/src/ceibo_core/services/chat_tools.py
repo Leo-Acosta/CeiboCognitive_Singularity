@@ -163,28 +163,31 @@ class ChatToolRouter:
         )
 
     def _is_travel(self, message: str) -> bool:
-        return any(
-            keyword in message
-            for keyword in (
-                "pasaje",
-                "pasajes",
-                "vuelo",
-                "vuelos",
-                "avion",
-                "aereo",
-                "micro",
-                "omnibus",
-                "autobus",
-                "bus",
-                "tren",
-                "ferry",
-                "barco",
-                "transporte",
-                "viajar",
-                "viaje",
-                "ida y vuelta",
-            )
-        ) and not any(keyword in message for keyword in ("cartelera", "teatro", "cine", "show", "recital"))
+        if any(keyword in message for keyword in ("cartelera", "teatro", "cine", "show", "recital")):
+            return False
+        travel_phrases = ("ida y vuelta", "comprar pasaje", "comprar pasajes", "medio de transporte")
+        if any(phrase in message for phrase in travel_phrases):
+            return True
+        tokens = set(message.replace("/", " ").replace("-", " ").split())
+        travel_tokens = {
+            "pasaje",
+            "pasajes",
+            "vuelo",
+            "vuelos",
+            "avion",
+            "aereo",
+            "micro",
+            "omnibus",
+            "autobus",
+            "bus",
+            "tren",
+            "ferry",
+            "barco",
+            "transporte",
+            "viajar",
+            "viaje",
+        }
+        return bool(tokens & travel_tokens)
 
     def _is_datetime(self, message: str) -> bool:
         return any(
