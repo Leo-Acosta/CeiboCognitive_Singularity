@@ -109,6 +109,7 @@ from ceibo_core.services.teacher_agent import TeacherAgentService
 from ceibo_core.services.training_data import TrainingDataService, training_data_service
 from ceibo_core.services.training_evidence_builder import TrainingEvidenceBuilderService
 from ceibo_core.services.training_runner import TrainingRunnerService
+from ceibo_core.services.travel_booking import travel_booking_service
 from ceibo_core.services.voice_control import VoiceControlService
 from ceibo_core.services.weather import WeatherService, weather_service
 
@@ -488,6 +489,51 @@ def test_entertainment_service_extracts_city_and_category():
     assert search.status == "ok"
     assert search.city == "New York"
     assert search.query == "Hamilton en New York"
+    assert search.options
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_asks_travel_ticket_details():
+    result = await ChatToolRouter().route("quiero comprar pasajes")
+
+    assert result is not None
+    assert result.tool_name == "travel.tickets"
+    assert result.status == "needs_details"
+    assert "origen" in result.answer
+    assert "fecha" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_flight_ticket_links():
+    result = await ChatToolRouter().route("vuelo de Buenos Aires a Madrid el 2026-08-12 para 2 pasajeros")
+
+    assert result is not None
+    assert result.tool_name == "travel.tickets"
+    assert result.status == "ok"
+    assert "Google Flights" in result.answer
+    assert "Buenos Aires" in result.answer
+    assert "Madrid" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_bus_ticket_links():
+    result = await ChatToolRouter().route("micro de CABA a Cordoba el 20/07 para 1 pasajero")
+
+    assert result is not None
+    assert result.tool_name == "travel.tickets"
+    assert result.status == "ok"
+    assert "Central de Pasajes" in result.answer
+    assert "Cordoba" in result.answer
+
+
+def test_travel_booking_service_extracts_route_and_passengers():
+    search = travel_booking_service.search("tren de Madrid a Barcelona el 2026-09-01 para 3 pasajeros")
+
+    assert search.status == "ok"
+    assert search.mode == "train"
+    assert search.origin == "Madrid"
+    assert search.destination == "Barcelona"
+    assert search.passengers == 3
     assert search.options
 
 

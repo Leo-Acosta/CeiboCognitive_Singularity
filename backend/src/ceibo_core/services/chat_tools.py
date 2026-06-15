@@ -9,6 +9,7 @@ from ceibo_core.core.config import settings
 from ceibo_core.services.entertainment import entertainment_service
 from ceibo_core.services.external_market import external_market_service
 from ceibo_core.services.project_knowledge import project_knowledge_service
+from ceibo_core.services.travel_booking import travel_booking_service
 from ceibo_core.services.weather import weather_service
 
 
@@ -42,6 +43,8 @@ class ChatToolRouter:
             return await self._stock(message)
         if self._is_country_condition(normalized):
             return await self._country_condition(message)
+        if self._is_travel(normalized):
+            return self._travel(message, context or [])
         if self._is_entertainment(normalized):
             return self._entertainment(message, context or [])
         if self._is_datetime(normalized):
@@ -158,6 +161,30 @@ class ChatToolRouter:
                 "comprar ticket",
             )
         )
+
+    def _is_travel(self, message: str) -> bool:
+        return any(
+            keyword in message
+            for keyword in (
+                "pasaje",
+                "pasajes",
+                "vuelo",
+                "vuelos",
+                "avion",
+                "aereo",
+                "micro",
+                "omnibus",
+                "autobus",
+                "bus",
+                "tren",
+                "ferry",
+                "barco",
+                "transporte",
+                "viajar",
+                "viaje",
+                "ida y vuelta",
+            )
+        ) and not any(keyword in message for keyword in ("cartelera", "teatro", "cine", "show", "recital"))
 
     def _is_datetime(self, message: str) -> bool:
         return any(
@@ -408,6 +435,46 @@ class ChatToolRouter:
                 *search.source_notes,
             ],
             audit_notes=["tool=entertainment.discovery", "mode=read_only_external_handoff"],
+        )
+
+    def _travel(self, message: str, context: list[str]) -> ChatToolResult:
+        search = travel_booking_service.search(message, context)
+        if search.status == "needs_details":
+            return ChatToolResult(
+                tool_name="travel.tickets",
+                status="needs_details",
+                answer=search.next_question or "Que pasaje queres buscar?",
+                focus="pasajes y transporte",
+                next_steps=[
+                    f"Datos faltantes: {', '.join(search.missing_fields)}.",
+                    "Puedo orientar avion, micro, tren, ferry o ruta multimodal.",
+                    *search.source_notes,
+                ],
+                audit_notes=["tool=travel.tickets", "mode=read_only_external_handoff"],
+            )
+        option_lines = [
+            (
+                f"- {option.source}: {option.mode} {search.origin} -> {search.destination}\n"
+                f"  Comprar/buscar: {option.booking_url}\n"
+                f"  Nota: {option.note}"
+            )
+            for option in search.options[:5]
+        ]
+        return ChatToolResult(
+            tool_name="travel.tickets",
+            status="ok",
+            answer=(
+                f"Para {search.passengers} pasajero(s), {travel_booking_service.mode_labels.get(search.mode or '', search.mode)} de {search.origin} "
+                f"a {search.destination} el {search.departure_date}, prepararia estas opciones:\n"
+                + "\n".join(option_lines)
+            ),
+            focus="pasajes y transporte",
+            next_steps=[
+                "Antes de pagar revisa equipaje, terminal/aeropuerto, escalas, horario y condiciones de cambio.",
+                "CEIBO todavia no compra ni guarda medio de pago; te guia hasta la plataforma externa.",
+                *search.source_notes,
+            ],
+            audit_notes=["tool=travel.tickets", "mode=read_only_external_handoff"],
         )
 
     def _datetime(self) -> ChatToolResult:
