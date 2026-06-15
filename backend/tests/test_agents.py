@@ -67,6 +67,8 @@ from ceibo_core.models.schemas import (
     VoiceAuthorizationRequest,
     VoiceCommandRequest,
     VoiceRevokeRequest,
+    WeatherDailyForecast,
+    WeatherForecast,
     WeatherObservation,
 )
 from ceibo_core.services.embeddings import embedding_service
@@ -82,6 +84,8 @@ from ceibo_core.services.evaluation_harness import (
     EvaluationHarnessService,
     evaluation_harness_service,
 )
+from ceibo_core.services.entertainment import entertainment_service
+from ceibo_core.services.external_market import CountryCondition, CurrencyQuote, StockQuote, external_market_service
 from ceibo_core.services.human_feedback_studio import HumanFeedbackStudioService
 from ceibo_core.services.devcore import devcore_service
 from ceibo_core.services.devcore_execution import CONFIRMATION_PHRASE, devcore_execution_sandbox
@@ -289,9 +293,47 @@ async def test_ceibo_engine_answers_weather_with_tool(monkeypatch):
     result = await ceibo_engine.generate(system_prompt="", user_message="hola, dime el tiempo")
 
     assert "Buenos Aires" in result.response
-    assert "22.5°C" in result.response
+    assert "22.5 C" in result.response
     assert "Open-Meteo" in result.response
     assert "weather" in result.intents
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_weather_forecast(monkeypatch):
+    async def fake_forecast(message: str, location: str | None = None, days: int = 5) -> WeatherForecast:
+        assert "llovera" in message.lower()
+        return WeatherForecast(
+            status="ok",
+            location="Buenos Aires",
+            country="Argentina",
+            days=[
+                WeatherDailyForecast(
+                    date="2026-06-15",
+                    condition="lluvia leve",
+                    temperature_min_c=8.0,
+                    temperature_max_c=14.0,
+                    precipitation_probability_max=72,
+                    precipitation_mm=3.4,
+                ),
+                WeatherDailyForecast(
+                    date="2026-06-16",
+                    condition="parcialmente nublado",
+                    temperature_min_c=7.0,
+                    temperature_max_c=15.0,
+                    precipitation_probability_max=10,
+                    precipitation_mm=0,
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(weather_service, "daily_forecast", fake_forecast)
+
+    result = await ChatToolRouter().route("llovera en los proximos dias?")
+
+    assert result is not None
+    assert result.tool_name == "weather.forecast"
+    assert "Buenos Aires" in result.answer
+    assert "72%" in result.answer
 
 
 @pytest.mark.asyncio
@@ -302,6 +344,151 @@ async def test_chat_tool_router_answers_time_without_external_provider():
     assert result.tool_name == "time.local"
     assert result.status == "ok"
     assert "America/Buenos_Aires" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_currency_quote(monkeypatch):
+    async def fake_currency(message: str, base: str | None = None, target: str | None = None) -> CurrencyQuote:
+        assert "dolar" in message.lower()
+        return CurrencyQuote(status="ok", base="USD", target="ARS", rate=1234.56, observed_at="2026-06-15")
+
+    monkeypatch.setattr(external_market_service, "currency", fake_currency)
+
+    result = await ChatToolRouter().route("dame el valor del dolar")
+
+    assert result is not None
+    assert result.tool_name == "market.currency"
+    assert "USD/ARS" in result.answer
+    assert "1234.56" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_stock_quote(monkeypatch):
+    async def fake_stock(message: str, symbol: str | None = None) -> StockQuote:
+        assert "aapl" in message.lower()
+        return StockQuote(
+            status="ok",
+            symbol="AAPL",
+            price=199.5,
+            currency="USD",
+            previous_close=198.0,
+            change=1.5,
+            change_percent=0.76,
+            source_url="https://finance.yahoo.com/quote/AAPL",
+        )
+
+    monkeypatch.setattr(external_market_service, "stock", fake_stock)
+
+    result = await ChatToolRouter().route("como cotiza la accion AAPL?")
+
+    assert result is not None
+    assert result.tool_name == "market.stock"
+    assert "AAPL" in result.answer
+    assert "0.76%" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_requests_stock_symbol(monkeypatch):
+    async def fake_stock(message: str, symbol: str | None = None) -> StockQuote:
+        return StockQuote(status="missing_symbol", symbol="", error="Falta simbolo.")
+
+    monkeypatch.setattr(external_market_service, "stock", fake_stock)
+
+    result = await ChatToolRouter().route("como cotizan las acciones?")
+
+    assert result is not None
+    assert result.tool_name == "market.stock"
+    assert "necesito el simbolo" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_country_condition(monkeypatch):
+    async def fake_country(message: str) -> CountryCondition:
+        return CountryCondition(
+            status="ok",
+            country="Argentina",
+            summary="Panorama de Argentina: datos macro publicos mas recientes disponibles.",
+            indicators=["Inflacion anual: 120.0 (2025)."],
+            source_urls=["https://api.worldbank.org/"],
+        )
+
+    monkeypatch.setattr(external_market_service, "country_condition", fake_country)
+
+    result = await ChatToolRouter().route("como esta la condicion de la nacion?")
+
+    assert result is not None
+    assert result.tool_name == "country.condition"
+    assert "Argentina" in result.answer
+    assert "Inflacion anual" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_partial_country_condition(monkeypatch):
+    async def fake_country(message: str) -> CountryCondition:
+        return CountryCondition(
+            status="partial",
+            country="Argentina",
+            summary="Panorama de Argentina: no pude obtener indicadores macro en este momento.",
+            indicators=[],
+            source_urls=["https://api.worldbank.org/"],
+            error="World Bank: HTTPStatusError",
+        )
+
+    monkeypatch.setattr(external_market_service, "country_condition", fake_country)
+
+    result = await ChatToolRouter().route("como esta la nacion?")
+
+    assert result is not None
+    assert result.tool_name == "country.condition"
+    assert result.status == "partial"
+    assert "Sin indicadores disponibles" in result.answer
+    assert "Advertencia" in "\n".join(result.next_steps)
+
+
+def test_external_market_service_does_not_treat_articles_as_stock_symbols():
+    assert external_market_service.extract_stock_symbol("como cotizan las acciones?") is None
+    assert external_market_service.extract_stock_symbol("como cotiza la accion AAPL?") == "AAPL"
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_asks_entertainment_preference():
+    result = await ChatToolRouter().route("quiero ver cartelera")
+
+    assert result is not None
+    assert result.tool_name == "entertainment.discovery"
+    assert result.status == "needs_preference"
+    assert "Que queres ver" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_theater_tickets_in_caba():
+    result = await ChatToolRouter().route("quiero ver teatro en CABA")
+
+    assert result is not None
+    assert result.tool_name == "entertainment.discovery"
+    assert result.status == "ok"
+    assert "Alternativa Teatral" in result.answer
+    assert "Comprar/reservar" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_router_answers_movies_in_world_city():
+    result = await ChatToolRouter().route("cine en Madrid")
+
+    assert result is not None
+    assert result.tool_name == "entertainment.discovery"
+    assert result.status == "ok"
+    assert "Madrid" in result.answer
+    assert "Ticketmaster" in result.answer
+
+
+def test_entertainment_service_extracts_city_and_category():
+    search = entertainment_service.search("entradas para Hamilton en New York")
+
+    assert search.status == "ok"
+    assert search.city == "New York"
+    assert search.query == "Hamilton en New York"
+    assert search.options
 
 
 @pytest.mark.asyncio

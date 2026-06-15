@@ -6,7 +6,7 @@ from urllib.parse import quote
 import httpx
 
 from ceibo_core.core.config import settings
-from ceibo_core.models.schemas import WeatherObservation
+from ceibo_core.models.schemas import WeatherDailyForecast, WeatherForecast, WeatherObservation
 
 
 WEATHER_CODE_LABELS = {
@@ -78,6 +78,34 @@ class WeatherService:
                 error=f"No pude conectar con el proveedor de clima: {exc.__class__.__name__}.",
             )
 
+    async def daily_forecast(self, message: str, location: str | None = None, days: int = 5) -> WeatherForecast:
+        requested_location = location or self.extract_location(message) or settings.ceibo_default_weather_location
+        if not requested_location:
+            return WeatherForecast(
+                status="missing_location",
+                provider=self.provider,
+                requires_location=True,
+                error="Falta ciudad o ubicacion para consultar pronostico.",
+            )
+
+        try:
+            place = await self._geocode(requested_location)
+            if place is None:
+                return WeatherForecast(
+                    status="not_found",
+                    provider=self.provider,
+                    location=requested_location,
+                    error="No pude resolver esa ubicacion.",
+                )
+            return await self._daily_forecast(place, days=days)
+        except httpx.HTTPError as exc:
+            return WeatherForecast(
+                status="provider_unavailable",
+                provider=self.provider,
+                location=requested_location,
+                error=f"No pude conectar con el proveedor de clima: {exc.__class__.__name__}.",
+            )
+
     async def _geocode(self, location: str) -> dict[str, object] | None:
         url = (
             "https://geocoding-api.open-meteo.com/v1/search"
@@ -124,6 +152,55 @@ class WeatherService:
             source_url="https://open-meteo.com/",
         )
 
+    async def _daily_forecast(self, place: dict[str, object], days: int) -> WeatherForecast:
+        latitude = float(place["latitude"])
+        longitude = float(place["longitude"])
+        safe_days = max(1, min(days, 7))
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={latitude}&longitude={longitude}"
+            "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
+            "precipitation_probability_max,precipitation_sum"
+            f"&forecast_days={safe_days}"
+            "&timezone=auto"
+        )
+        async with httpx.AsyncClient(timeout=settings.weather_timeout_seconds) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            payload = response.json()
+        daily = payload.get("daily") or {}
+        dates = daily.get("time") or []
+        codes = daily.get("weather_code") or []
+        max_temps = daily.get("temperature_2m_max") or []
+        min_temps = daily.get("temperature_2m_min") or []
+        rain_probabilities = daily.get("precipitation_probability_max") or []
+        precipitation = daily.get("precipitation_sum") or []
+        forecasts = [
+            WeatherDailyForecast(
+                date=str(date),
+                weather_code=self._int_or_none(self._at(codes, index)),
+                condition=WEATHER_CODE_LABELS.get(
+                    self._int_or_none(self._at(codes, index)),
+                    "condicion no clasificada",
+                ),
+                temperature_min_c=self._float_or_none(self._at(min_temps, index)),
+                temperature_max_c=self._float_or_none(self._at(max_temps, index)),
+                precipitation_probability_max=self._int_or_none(self._at(rain_probabilities, index)),
+                precipitation_mm=self._float_or_none(self._at(precipitation, index)),
+            )
+            for index, date in enumerate(dates)
+        ]
+        return WeatherForecast(
+            status="ok",
+            provider=self.provider,
+            location=str(place.get("name") or ""),
+            country=str(place.get("country") or ""),
+            latitude=latitude,
+            longitude=longitude,
+            days=forecasts,
+            source_url="https://open-meteo.com/",
+        )
+
     @staticmethod
     def _float_or_none(value: object) -> float | None:
         try:
@@ -136,6 +213,13 @@ class WeatherService:
         try:
             return int(value)
         except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _at(values: list[object], index: int) -> object | None:
+        try:
+            return values[index]
+        except IndexError:
             return None
 
 

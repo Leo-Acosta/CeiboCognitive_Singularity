@@ -706,6 +706,7 @@ type WorkbenchHistoryItem = {
 
 const starterPrompts = [
   "Interpreta esta fase del proyecto y propone el siguiente paso.",
+  "Que hay en cartelera para teatro en CABA?",
   "Crea POST /api/v1/tools en FastAPI con tests.",
   "Agrega un componente React llamado WorkbenchPanel.",
 ];

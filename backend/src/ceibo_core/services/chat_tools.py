@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 from ceibo_core.core.config import settings
+from ceibo_core.services.entertainment import entertainment_service
+from ceibo_core.services.external_market import external_market_service
 from ceibo_core.services.project_knowledge import project_knowledge_service
 from ceibo_core.services.weather import weather_service
 
@@ -34,6 +36,14 @@ class ChatToolRouter:
         normalized = project_knowledge_service.normalize(message)
         if self._is_weather(normalized):
             return await self._weather(message)
+        if self._is_currency(normalized):
+            return await self._currency(message)
+        if self._is_stock(normalized):
+            return await self._stock(message)
+        if self._is_country_condition(normalized):
+            return await self._country_condition(message)
+        if self._is_entertainment(normalized):
+            return self._entertainment(message, context or [])
         if self._is_datetime(normalized):
             return self._datetime()
         if self._is_git_status(normalized):
@@ -45,8 +55,108 @@ class ChatToolRouter:
         return None
 
     def _is_weather(self, message: str) -> bool:
-        return any(keyword in message for keyword in ("clima", "temperatura", "pronostico")) or (
+        return any(
+            keyword in message
+            for keyword in (
+                "clima",
+                "temperatura",
+                "pronostico",
+                "llover",
+                "llueve",
+                "lluvia",
+                "tormenta",
+                "estado del tiempo",
+            )
+        ) or (
             "tiempo" in message and not any(keyword in message for keyword in ("hora", "fecha"))
+        )
+
+    def _is_weather_forecast(self, message: str) -> bool:
+        normalized = project_knowledge_service.normalize(message)
+        return any(
+            keyword in normalized
+            for keyword in (
+                "pronostico",
+                "llover",
+                "llueve",
+                "lluvia",
+                "proximos dias",
+                "manana",
+                "semana",
+                "forecast",
+            )
+        )
+
+    def _is_currency(self, message: str) -> bool:
+        return any(
+            keyword in message
+            for keyword in (
+                "dolar",
+                "dolares",
+                "usd",
+                "euro",
+                "eur",
+                "tipo de cambio",
+                "cotizacion del dolar",
+                "valor del dolar",
+                "calor del dolar",
+            )
+        )
+
+    def _is_stock(self, message: str) -> bool:
+        return any(
+            keyword in message
+            for keyword in (
+                "accion",
+                "acciones",
+                "stock",
+                "ticker",
+                "cotiza",
+                "cotizan",
+                "nasdaq",
+                "nyse",
+            )
+        )
+
+    def _is_country_condition(self, message: str) -> bool:
+        return any(
+            phrase in message
+            for phrase in (
+                "condicion de la nacion",
+                "estado de la nacion",
+                "situacion del pais",
+                "situacion de la nacion",
+                "como esta la nacion",
+                "como esta el pais",
+                "panorama del pais",
+                "panorama de argentina",
+            )
+        )
+
+    def _is_entertainment(self, message: str) -> bool:
+        return any(
+            keyword in message
+            for keyword in (
+                "cartelera",
+                "cine",
+                "teatro",
+                "obra",
+                "obras",
+                "pelicula",
+                "peliculas",
+                "espectaculo",
+                "espectaculos",
+                "show",
+                "shows",
+                "recital",
+                "concierto",
+                "conciertos",
+                "entradas",
+                "ticket",
+                "tickets",
+                "comprar entrada",
+                "comprar ticket",
+            )
         )
 
     def _is_datetime(self, message: str) -> bool:
@@ -72,14 +182,18 @@ class ChatToolRouter:
         return project_knowledge_service.should_answer(message)
 
     async def _weather(self, message: str) -> ChatToolResult:
+        if self._is_weather_forecast(message):
+            return await self._weather_forecast(message)
         observation = await weather_service.current_weather(message)
         if observation.status == "ok":
             location = ", ".join(
                 part for part in [observation.location, observation.country] if part
             )
+            temperature = f"{observation.temperature_c} C"
+            apparent = f"{observation.apparent_temperature_c} C"
             answer = (
-                f"Ahora en {location} hay {observation.temperature_c}°C "
-                f"(sensacion {observation.apparent_temperature_c}°C), "
+                f"Ahora en {location} hay {temperature} "
+                f"(sensacion {apparent}), "
                 f"{observation.condition}. Humedad {observation.humidity_percent}% "
                 f"y viento {observation.wind_kmh} km/h."
             )
@@ -117,6 +231,183 @@ class ChatToolRouter:
             focus="consulta de clima",
             next_steps=next_steps,
             audit_notes=["tool=weather.current", "mode=read_only_external"],
+        )
+
+    async def _weather_forecast(self, message: str) -> ChatToolResult:
+        forecast = await weather_service.daily_forecast(message)
+        if forecast.status == "ok":
+            location = ", ".join(part for part in [forecast.location, forecast.country] if part)
+            rainy_days = [
+                day
+                for day in forecast.days
+                if (day.precipitation_probability_max or 0) >= 40 or (day.precipitation_mm or 0) > 0
+            ]
+            if rainy_days:
+                rain_summary = "Hay chance de lluvia en " + ", ".join(
+                    f"{day.date} ({day.precipitation_probability_max or 0}%, {day.precipitation_mm or 0} mm)"
+                    for day in rainy_days[:3]
+                )
+            else:
+                rain_summary = "No aparecen senales fuertes de lluvia en los proximos dias."
+            daily_lines = [
+                (
+                    f"- {day.date}: {day.condition}, "
+                    f"{day.temperature_min_c} a {day.temperature_max_c} C, "
+                    f"lluvia {day.precipitation_probability_max or 0}%."
+                )
+                for day in forecast.days[:5]
+            ]
+            return ChatToolResult(
+                tool_name="weather.forecast",
+                status="ok",
+                answer=f"Pronostico para {location}: {rain_summary}\n" + "\n".join(daily_lines),
+                focus="pronostico de clima",
+                next_steps=[
+                    f"Fuente: {forecast.provider} / Open-Meteo.",
+                    "El pronostico puede cambiar; conviene revisarlo cerca del horario de salida.",
+                    "Para otra ciudad, pregunta por ejemplo: llovera en Montevideo?",
+                ],
+                audit_notes=["tool=weather.forecast", "mode=read_only_external"],
+            )
+        if forecast.status == "not_found":
+            answer = f"No pude encontrar la ubicacion `{forecast.location}` para consultar el pronostico."
+            next_steps = ["Probar con ciudad y pais, por ejemplo: pronostico en Cordoba, Argentina."]
+        elif forecast.status == "missing_location":
+            answer = "Puedo consultar pronostico, pero necesito una ciudad o ubicacion."
+            next_steps = ["Ejemplo: llovera en Buenos Aires los proximos dias?"]
+        else:
+            answer = "La herramienta de pronostico esta integrada, pero ahora no pude consultar el proveedor externo."
+            next_steps = [forecast.error or "Reintentar la consulta en unos segundos."]
+        return ChatToolResult(
+            tool_name="weather.forecast",
+            status=forecast.status,
+            answer=answer,
+            focus="pronostico de clima",
+            next_steps=next_steps,
+            audit_notes=["tool=weather.forecast", "mode=read_only_external"],
+        )
+
+    async def _currency(self, message: str) -> ChatToolResult:
+        quote = await external_market_service.currency(message)
+        if quote.status == "ok":
+            return ChatToolResult(
+                tool_name="market.currency",
+                status="ok",
+                answer=f"{quote.base}/{quote.target}: 1 {quote.base} = {quote.rate} {quote.target}.",
+                focus="cotizacion de moneda",
+                next_steps=[
+                    f"Fuente: {quote.provider}.",
+                    f"Fecha/hora de referencia: {quote.observed_at}.",
+                    "Es cotizacion informativa; no es asesoramiento financiero.",
+                ],
+                audit_notes=["tool=market.currency", "mode=read_only_external"],
+            )
+        return ChatToolResult(
+            tool_name="market.currency",
+            status=quote.status,
+            answer="No pude obtener la cotizacion solicitada.",
+            focus="cotizacion de moneda",
+            next_steps=[quote.error or "Probar con un par tipo USD/ARS o EUR/USD."],
+            audit_notes=["tool=market.currency", "mode=read_only_external"],
+        )
+
+    async def _stock(self, message: str) -> ChatToolResult:
+        quote = await external_market_service.stock(message)
+        if quote.status == "ok":
+            change = ""
+            if quote.change is not None and quote.change_percent is not None:
+                change = f" Cambio vs cierre previo: {quote.change} ({quote.change_percent}%)."
+            return ChatToolResult(
+                tool_name="market.stock",
+                status="ok",
+                answer=f"{quote.symbol}: {quote.price} {quote.currency}.{change}",
+                focus="cotizacion de accion",
+                next_steps=[
+                    f"Fuente: {quote.provider}.",
+                    f"Referencia: {quote.source_url}.",
+                    "Es informacion de mercado con posible demora; no es recomendacion de inversion.",
+                ],
+                audit_notes=["tool=market.stock", "mode=read_only_external"],
+            )
+        if quote.status == "missing_symbol":
+            answer = "Puedo consultar acciones, pero necesito el simbolo/ticker."
+            next_steps = ["Ejemplo: como cotiza AAPL?", "Ejemplo: cotizacion de GGAL.BA."]
+        else:
+            answer = f"No pude obtener la cotizacion de `{quote.symbol}`."
+            next_steps = [quote.error or "Verificar el ticker."]
+        return ChatToolResult(
+            tool_name="market.stock",
+            status=quote.status,
+            answer=answer,
+            focus="cotizacion de accion",
+            next_steps=next_steps,
+            audit_notes=["tool=market.stock", "mode=read_only_external"],
+        )
+
+    async def _country_condition(self, message: str) -> ChatToolResult:
+        condition = await external_market_service.country_condition(message)
+        if condition.status in {"ok", "partial"}:
+            indicators = "\n".join(f"- {indicator}" for indicator in condition.indicators) or "- Sin indicadores disponibles."
+            provider_note = [f"Advertencia: {condition.error}."] if condition.error else []
+            return ChatToolResult(
+                tool_name="country.condition",
+                status=condition.status,
+                answer=f"{condition.summary}\n{indicators}",
+                focus="panorama pais",
+                next_steps=[
+                    *provider_note,
+                    "Para noticias en tiempo real hace falta integrar un proveedor de noticias.",
+                    "Para decision economica o politica, contrastar con fuentes oficiales y medios confiables.",
+                    *[f"Fuente: {source}" for source in condition.source_urls],
+                ],
+                audit_notes=["tool=country.condition", "mode=read_only_external"],
+            )
+        return ChatToolResult(
+            tool_name="country.condition",
+            status=condition.status,
+            answer=condition.summary,
+            focus="panorama pais",
+            next_steps=[condition.error or "Reintentar o indicar pais concreto."],
+            audit_notes=["tool=country.condition", "mode=read_only_external"],
+        )
+
+    def _entertainment(self, message: str, context: list[str]) -> ChatToolResult:
+        search = entertainment_service.search(message, context)
+        if search.status == "needs_preference":
+            return ChatToolResult(
+                tool_name="entertainment.discovery",
+                status="needs_preference",
+                answer=search.next_question or "Que queres ver?",
+                focus="cartelera y tickets",
+                next_steps=[
+                    f"Ciudad base: {search.city or 'CABA'}.",
+                    "Ejemplos: teatro en CABA, cine en Madrid, recitales en New York, entradas para Fuerza Bruta.",
+                    *search.source_notes,
+                ],
+                audit_notes=["tool=entertainment.discovery", "mode=read_only_external_handoff"],
+            )
+        option_lines = [
+            (
+                f"- {option.source}: {option.title}\n"
+                f"  Comprar/reservar: {option.ticket_url}\n"
+                f"  Nota: {option.note}"
+            )
+            for option in search.options[:5]
+        ]
+        return ChatToolResult(
+            tool_name="entertainment.discovery",
+            status="ok",
+            answer=(
+                f"Para {search.category} en {search.city}, buscaria `{search.query}` en estas carteleras:\n"
+                + "\n".join(option_lines)
+            ),
+            focus="cartelera y tickets",
+            next_steps=[
+                "Decime fecha, presupuesto o zona y filtro mejor.",
+                "Cuando elijas una opcion, te puedo guiar hasta el paso previo al pago.",
+                *search.source_notes,
+            ],
+            audit_notes=["tool=entertainment.discovery", "mode=read_only_external_handoff"],
         )
 
     def _datetime(self) -> ChatToolResult:

@@ -732,6 +732,30 @@ class WeatherObservation(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class WeatherDailyForecast(BaseModel):
+    date: str
+    condition: str
+    weather_code: int | None = None
+    temperature_min_c: float | None = None
+    temperature_max_c: float | None = None
+    precipitation_probability_max: int | None = None
+    precipitation_mm: float | None = None
+
+
+class WeatherForecast(BaseModel):
+    status: str
+    provider: str = "open-meteo"
+    location: str | None = None
+    country: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    days: list[WeatherDailyForecast] = Field(default_factory=list)
+    source_url: str | None = None
+    requires_location: bool = False
+    error: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class TrainingFeedbackRating(StrEnum):
     GOOD = "good"
     BAD = "bad"
