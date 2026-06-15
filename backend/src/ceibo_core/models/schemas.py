@@ -712,6 +712,26 @@ class EngineStatus(BaseModel):
     core_directive: str
 
 
+class WeatherObservation(BaseModel):
+    status: str
+    provider: str = "open-meteo"
+    location: str | None = None
+    country: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    temperature_c: float | None = None
+    apparent_temperature_c: float | None = None
+    humidity_percent: int | None = None
+    wind_kmh: float | None = None
+    weather_code: int | None = None
+    condition: str | None = None
+    observed_at: str | None = None
+    source_url: str | None = None
+    requires_location: bool = False
+    error: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class TrainingFeedbackRating(StrEnum):
     GOOD = "good"
     BAD = "bad"

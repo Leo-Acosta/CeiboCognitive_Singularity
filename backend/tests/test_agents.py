@@ -67,6 +67,7 @@ from ceibo_core.models.schemas import (
     VoiceAuthorizationRequest,
     VoiceCommandRequest,
     VoiceRevokeRequest,
+    WeatherObservation,
 )
 from ceibo_core.services.embeddings import embedding_service
 from ceibo_core.services.audit import audit_trail_service
@@ -104,6 +105,7 @@ from ceibo_core.services.training_data import TrainingDataService, training_data
 from ceibo_core.services.training_evidence_builder import TrainingEvidenceBuilderService
 from ceibo_core.services.training_runner import TrainingRunnerService
 from ceibo_core.services.voice_control import VoiceControlService
+from ceibo_core.services.weather import WeatherService, weather_service
 
 
 @pytest.mark.asyncio
@@ -262,6 +264,40 @@ def test_devcore_parser_marks_weather_as_external_information():
     assert parsed.intent == "external_information"
     assert parsed.risk_level == "low"
     assert any(issue.code == "external_provider_required" for issue in parsed.validation_issues)
+
+
+@pytest.mark.asyncio
+async def test_ceibo_engine_answers_weather_with_tool(monkeypatch):
+    async def fake_weather(message: str, location: str | None = None) -> WeatherObservation:
+        assert "tiempo" in message.lower()
+        return WeatherObservation(
+            status="ok",
+            location="Buenos Aires",
+            country="Argentina",
+            temperature_c=22.5,
+            apparent_temperature_c=22.0,
+            humidity_percent=61,
+            wind_kmh=12.4,
+            weather_code=2,
+            condition="parcialmente nublado",
+            observed_at="2026-06-14T18:00",
+        )
+
+    monkeypatch.setattr(weather_service, "current_weather", fake_weather)
+
+    result = await ceibo_engine.generate(system_prompt="", user_message="hola, dime el tiempo")
+
+    assert "Buenos Aires" in result.response
+    assert "22.5°C" in result.response
+    assert "Open-Meteo" in result.response
+    assert "weather" in result.intents
+
+
+def test_weather_service_extracts_explicit_location():
+    service = WeatherService()
+
+    assert service.extract_location("dime el tiempo en Madrid") == "Madrid"
+    assert service.extract_location("clima para Montevideo") == "Montevideo"
 
 
 def test_devcore_parser_flags_dangerous_requests():

@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from ceibo_core.core.config import settings
 from ceibo_core.models.schemas import EngineGenerateResponse, EngineStatus
+from ceibo_core.services.weather import weather_service
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,7 @@ class CeiboAIEngine:
     ) -> EngineGenerateResponse:
         context = context or self._extract_context(system_prompt)
         intents = self._detect_intents(user_message)
-        response = self._compose_response(user_message=user_message, intents=intents, context=context)
+        response = await self._compose_response(user_message=user_message, intents=intents, context=context)
         return EngineGenerateResponse(
             response=response,
             model_id=settings.ceibo_engine_model_id,
@@ -70,7 +71,7 @@ class CeiboAIEngine:
         ]
         return intents or ["general"]
 
-    def _compose_response(self, user_message: str, intents: list[str], context: list[str]) -> str:
+    async def _compose_response(self, user_message: str, intents: list[str], context: list[str]) -> str:
         parser_context = next((item for item in context if item.startswith("DevCore parse:")), "")
         if "intent=create_endpoint" in parser_context:
             focus = "endpoint backend"
@@ -98,16 +99,8 @@ class CeiboAIEngine:
             ]
         elif "weather" in intents:
             focus = "consulta de clima"
-            answer = (
-                "Ahora mismo CEIBO no tiene conectado un proveedor de clima en tiempo real. "
-                "Puedo interpretar la solicitud, pero para responder temperatura o pronostico "
-                "necesitamos integrar una API de clima o habilitar una herramienta externa."
-            )
-            next_steps = [
-                "Agregar un proveedor de clima configurable.",
-                "Pedir ciudad o ubicacion cuando no este definida.",
-                "Responder con fuente, hora de consulta y unidades.",
-            ]
+            observation = await weather_service.current_weather(user_message)
+            answer, next_steps = self._weather_answer(observation)
         elif "training" in intents:
             focus = "entrenamiento local"
             answer = (
@@ -192,6 +185,48 @@ class CeiboAIEngine:
             f"Foco: {focus}.\n"
             f"{memory_note}\n\n"
             f"Siguientes pasos recomendados:\n{steps}"
+        )
+
+    def _weather_answer(self, observation) -> tuple[str, list[str]]:
+        if observation.status == "ok":
+            location = ", ".join(
+                part for part in [observation.location, observation.country] if part
+            )
+            answer = (
+                f"Ahora en {location} hay {observation.temperature_c}°C "
+                f"(sensacion {observation.apparent_temperature_c}°C), "
+                f"{observation.condition}. Humedad {observation.humidity_percent}% "
+                f"y viento {observation.wind_kmh} km/h."
+            )
+            details = [
+                f"Fuente: {observation.provider} / Open-Meteo.",
+                f"Hora de observacion: {observation.observed_at}.",
+                "Si queres, puedo responder tambien con pronostico extendido en una siguiente mejora.",
+            ]
+            return answer, details
+        if observation.status == "missing_location":
+            return (
+                "Puedo consultar el clima, pero necesito una ciudad o ubicacion. "
+                "Por ejemplo: `dime el tiempo en Buenos Aires` o `clima en Madrid`.",
+                [
+                    "Indicar ciudad, provincia o pais si hay ambiguedad.",
+                    "Responder con temperatura, sensacion termica, humedad, viento y fuente.",
+                ],
+            )
+        if observation.status == "not_found":
+            return (
+                f"No pude encontrar la ubicacion `{observation.location}` para consultar el clima.",
+                [
+                    "Probar con ciudad y pais, por ejemplo: `tiempo en Cordoba, Argentina`.",
+                    "Evitar nombres ambiguos o incompletos.",
+                ],
+            )
+        return (
+            "La herramienta de clima esta integrada, pero ahora no pude consultar el proveedor externo.",
+            [
+                observation.error or "Reintentar la consulta en unos segundos.",
+                "Si el entorno no tiene internet, dejar la respuesta como pendiente de proveedor.",
+            ],
         )
 
     @staticmethod

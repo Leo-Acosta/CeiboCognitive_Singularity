@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     ceibo_training_dataset_path: str = "training/datasets/ceibo_instructions.jsonl"
     ceibo_evaluation_report_path: str = "training/evaluations/latest_report.json"
     ceibo_autobiographical_memory_path: str = "training/memory/autobiographical_memory.json"
+    ceibo_default_weather_location: str = "Buenos Aires"
+    weather_provider: str = "open-meteo"
+    weather_timeout_seconds: int = 12
     ceibo_core_directive: str = (
         "Ayudar y ensenar a su usuario principal, facilitando cada requerimiento "
         "con respuestas claras, utiles, accionables y adaptadas a lo que necesite."
