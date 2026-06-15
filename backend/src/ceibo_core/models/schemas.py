@@ -1318,6 +1318,44 @@ class TrainingDryRunReport(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class TrainingReadinessSignal(BaseModel):
+    name: str
+    passed: bool
+    severity: str = "info"
+    current: int | float | str | None = None
+    target: int | float | str | None = None
+    detail: str
+
+
+class TrainingReadinessCoverage(BaseModel):
+    category: str
+    examples: int = 0
+    required_examples: int = 3
+    status: str = "missing"
+
+
+class TrainingReadinessConsole(BaseModel):
+    readiness_id: str = Field(default_factory=lambda: str(uuid4()))
+    status: str
+    summary: str
+    readiness_score: int = Field(ge=0, le=100)
+    ready_for_preflight: bool = False
+    ready_for_training: bool = False
+    dataset_path: str
+    config_path: str
+    output_dir: str | None = None
+    base_model: str | None = None
+    signals: list[TrainingReadinessSignal] = Field(default_factory=list)
+    coverage: list[TrainingReadinessCoverage] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    curation_review: LearningCurationReview | None = None
+    promotion_gate: TrainingPromotionGate | None = None
+    dry_run: TrainingDryRunReport | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class TrainingEvidenceBuilderRequest(BaseModel):
     target_usable_examples: int = Field(default=25, ge=1)
     target_corrected_examples: int = Field(default=3, ge=0)

@@ -387,6 +387,44 @@ type TrainingDryRunReport = {
   created_at: string;
 };
 
+type TrainingReadinessSignal = {
+  name: string;
+  passed: boolean;
+  severity: string;
+  current: number | string | null;
+  target: number | string | null;
+  detail: string;
+};
+
+type TrainingReadinessCoverage = {
+  category: string;
+  examples: number;
+  required_examples: number;
+  status: string;
+};
+
+type TrainingReadinessConsole = {
+  readiness_id: string;
+  status: string;
+  summary: string;
+  readiness_score: number;
+  ready_for_preflight: boolean;
+  ready_for_training: boolean;
+  dataset_path: string;
+  config_path: string;
+  output_dir: string | null;
+  base_model: string | null;
+  signals: TrainingReadinessSignal[];
+  coverage: TrainingReadinessCoverage[];
+  blockers: string[];
+  warnings: string[];
+  next_actions: string[];
+  curation_review: LearningCurationReview | null;
+  promotion_gate: TrainingPromotionGate | null;
+  dry_run: TrainingDryRunReport | null;
+  created_at: string;
+};
+
 type TrainingEvidenceGap = {
   key: string;
   label: string;
@@ -853,6 +891,7 @@ export default function Home() {
   const [remediationOutcomeReview, setRemediationOutcomeReview] = useState<EvaluationRemediationOutcomeReview | null>(null);
   const [trainingPromotionGate, setTrainingPromotionGate] = useState<TrainingPromotionGate | null>(null);
   const [trainingDryRun, setTrainingDryRun] = useState<TrainingDryRunReport | null>(null);
+  const [trainingReadiness, setTrainingReadiness] = useState<TrainingReadinessConsole | null>(null);
   const [trainingEvidence, setTrainingEvidence] = useState<TrainingEvidenceBuilderReport | null>(null);
   const [datasetExpansion, setDatasetExpansion] = useState<DatasetExpansionReport | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
@@ -868,6 +907,7 @@ export default function Home() {
   const [isApplyingRemediation, setIsApplyingRemediation] = useState(false);
   const [isReviewingPromotionGate, setIsReviewingPromotionGate] = useState(false);
   const [isRunningTrainingDryRun, setIsRunningTrainingDryRun] = useState(false);
+  const [isReviewingTrainingReadiness, setIsReviewingTrainingReadiness] = useState(false);
   const [isBuildingTrainingEvidence, setIsBuildingTrainingEvidence] = useState(false);
   const [isBuildingDatasetExpansion, setIsBuildingDatasetExpansion] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
@@ -910,6 +950,7 @@ export default function Home() {
     void refreshEvaluationRemediation();
     void refreshRemediationOutcomes();
     void refreshTrainingPromotionGate();
+    void refreshTrainingReadiness();
     void refreshDatasetExpansion();
   }, []);
 
@@ -1138,6 +1179,41 @@ export default function Home() {
       setTrainingPromotionGate(null);
     } finally {
       setIsReviewingPromotionGate(false);
+    }
+  }
+
+  async function refreshTrainingReadiness() {
+    setIsReviewingTrainingReadiness(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/readiness`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_steps: 1, local_files_only: true }),
+      });
+      if (!response.ok) {
+        throw new Error(`Training readiness responded ${response.status}`);
+      }
+      const data = (await response.json()) as TrainingReadinessConsole;
+      setTrainingReadiness(data);
+      if (data.curation_review) {
+        setLearningCuration(data.curation_review);
+      }
+      if (data.promotion_gate) {
+        setTrainingPromotionGate(data.promotion_gate);
+      }
+      if (data.dry_run) {
+        setTrainingDryRun(data.dry_run);
+      }
+      addHistory({
+        kind: "learning",
+        title: "training readiness",
+        detail: `${data.status} - ${data.readiness_score}/100`,
+      });
+    } catch {
+      setTrainingReadiness(null);
+      setConnection("offline");
+    } finally {
+      setIsReviewingTrainingReadiness(false);
     }
   }
 
@@ -2163,6 +2239,142 @@ export default function Home() {
                   {voiceStatus?.safety_notes[0] ??
                     "Voice v1 autoriza por frase hablada; las ordenes siguen pasando por seguridad."}
                 </p>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Sprint 46
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Training Readiness
+                  </h2>
+                </div>
+                <ShieldCheck
+                  className={`h-5 w-5 ${
+                    trainingReadiness?.ready_for_preflight ? "text-emerald-600" : "text-amber-600"
+                  }`}
+                />
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {trainingReadiness ? (
+                  <>
+                    <div
+                      className={`rounded-md border px-3 py-2 text-sm ${
+                        trainingReadiness.ready_for_preflight
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-amber-200 bg-amber-50 text-amber-800"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-semibold">{trainingReadiness.status}</p>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold">
+                          {trainingReadiness.readiness_score}/100
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs leading-5">{trainingReadiness.summary}</p>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {trainingReadiness.curation_review?.readiness.usable_examples ?? 0}
+                        </p>
+                        <p className="text-slate-500">curados</p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {trainingReadiness.promotion_gate?.evidence.evaluation_score ?? "--"}
+                        </p>
+                        <p className="text-slate-500">eval</p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {trainingReadiness.dry_run?.status ?? "missing"}
+                        </p>
+                        <p className="text-slate-500">dry run</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {trainingReadiness.signals.slice(0, 4).map((signal) => (
+                        <div
+                          key={signal.name}
+                          className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-slate-800">{signal.name}</p>
+                            <p className="truncate text-slate-500">{signal.detail}</p>
+                          </div>
+                          <span
+                            className={`rounded-full px-2 py-0.5 font-semibold ${
+                              signal.passed
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-amber-100 text-amber-700"
+                            }`}
+                          >
+                            {signal.passed ? "ok" : "falta"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      {trainingReadiness.coverage.slice(0, 6).map((item) => (
+                        <div
+                          key={item.category}
+                          className={`rounded-md border px-2 py-2 text-center ${
+                            item.status === "covered"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                              : item.status === "thin"
+                                ? "border-sky-200 bg-sky-50 text-sky-800"
+                                : "border-slate-200 bg-slate-50 text-slate-500"
+                          }`}
+                        >
+                          <p className="truncate font-semibold">{item.category}</p>
+                          <p className="mt-1">
+                            {item.examples}/{item.required_examples}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {trainingReadiness.blockers[0] ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                        {trainingReadiness.blockers[0]}
+                      </p>
+                    ) : trainingReadiness.next_actions[0] ? (
+                      <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800">
+                        {trainingReadiness.next_actions[0]}
+                      </p>
+                    ) : null}
+
+                    <p className="truncate rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                      Dataset: {trainingReadiness.dataset_path}
+                    </p>
+                  </>
+                ) : (
+                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                    Consolida dataset, evaluation gate, promotion gate y dry-run para decidir si CEIBO puede pasar a preflight QLoRA.
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => void refreshTrainingReadiness()}
+                  disabled={isReviewingTrainingReadiness}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {isReviewingTrainingReadiness ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="h-4 w-4" />
+                  )}
+                  Revisar readiness
+                </button>
               </div>
             </div>
 
