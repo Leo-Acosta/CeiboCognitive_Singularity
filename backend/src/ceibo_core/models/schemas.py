@@ -1017,6 +1017,25 @@ class DatasetExpansionCandidate(BaseModel):
     review_notes: list[str] = Field(default_factory=list)
 
 
+class DatasetExpansionCategoryProfile(BaseModel):
+    category: str
+    candidates: int = 0
+    average_quality: float = 0
+    gate_passed: int = 0
+    duplicates: int = 0
+    top_signals: list[str] = Field(default_factory=list)
+    status: str = "missing"
+
+
+class DatasetExpansionQualityGate(BaseModel):
+    name: str
+    passed: bool
+    current: int | float | str | None = None
+    target: int | float | str | None = None
+    severity: str = "info"
+    detail: str
+
+
 class DatasetExpansionReport(BaseModel):
     expansion_id: str
     status: str
@@ -1033,6 +1052,9 @@ class DatasetExpansionReport(BaseModel):
     gate_passed_candidates: int = 0
     promotion_ready: bool = False
     dataset_fingerprint: str | None = None
+    category_profiles: list[DatasetExpansionCategoryProfile] = Field(default_factory=list)
+    quality_gates: list[DatasetExpansionQualityGate] = Field(default_factory=list)
+    review_protocol: list[str] = Field(default_factory=list)
     review_file: str | None = None
     review_manifest: str | None = None
     preview_candidates: list[DatasetExpansionCandidate] = Field(default_factory=list)

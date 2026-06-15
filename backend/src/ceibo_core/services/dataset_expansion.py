@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from ceibo_core.models.schemas import (
     DatasetExpansionCandidate,
+    DatasetExpansionCategoryProfile,
+    DatasetExpansionQualityGate,
     DatasetExpansionReport,
     DatasetExpansionRequest,
     TrainingExample,
@@ -174,6 +176,7 @@ class DatasetExpansionService:
         )
         coverage_score = self._coverage_score(categories, category_counts, request.min_examples_per_category)
         diversity_score = self._diversity_score(candidates)
+        category_profiles = self._category_profiles(categories, candidates)
         warnings = self._warnings(
             request,
             candidates,
@@ -182,12 +185,22 @@ class DatasetExpansionService:
             coverage_score,
             diversity_score,
         )
+        quality_gates = self._quality_gates(
+            request=request,
+            candidates=candidates,
+            generated_raw=generated_raw,
+            duplicate_candidates=duplicate_candidates,
+            average_quality=average_quality,
+            coverage_score=coverage_score,
+            diversity_score=diversity_score,
+        )
         promotion_ready = (
             len(candidates) == request.target_examples
             and average_quality >= request.min_quality_score
             and coverage_score >= 90
             and diversity_score >= 70
             and duplicate_candidates / max(1, generated_raw) <= MAX_DUPLICATE_RATIO
+            and all(gate.passed for gate in quality_gates)
         )
         return DatasetExpansionReport(
             expansion_id=f"expansion-{uuid4().hex[:12]}",
@@ -208,6 +221,9 @@ class DatasetExpansionService:
             gate_passed_candidates=sum(1 for candidate in candidates if candidate.accepted_by_gate),
             promotion_ready=promotion_ready,
             dataset_fingerprint=dataset_fingerprint,
+            category_profiles=category_profiles,
+            quality_gates=quality_gates,
+            review_protocol=self._review_protocol(promotion_ready),
             review_file=str(review_file) if review_file else None,
             review_manifest=str(review_manifest) if review_manifest else None,
             preview_candidates=candidates[:8],
@@ -248,6 +264,16 @@ class DatasetExpansionService:
         coverage_score = self._coverage_score(categories, category_counts, 1)
         diversity_score = self._diversity_score(candidates)
         duplicate_candidates = sum(1 for candidate in candidates if candidate.duplicate_risk == "high")
+        category_profiles = self._category_profiles(categories, candidates)
+        quality_gates = self._quality_gates(
+            request=DatasetExpansionRequest(target_examples=max(100, len(candidates) or 100)),
+            candidates=candidates,
+            generated_raw=len(candidates),
+            duplicate_candidates=duplicate_candidates,
+            average_quality=average_quality,
+            coverage_score=coverage_score,
+            diversity_score=diversity_score,
+        )
         return DatasetExpansionReport(
             expansion_id=path.stem.replace("dataset_", ""),
             status="review_required" if candidates else "empty",
@@ -262,8 +288,11 @@ class DatasetExpansionService:
             diversity_score=diversity_score,
             duplicate_candidates=duplicate_candidates,
             gate_passed_candidates=sum(1 for candidate in candidates if candidate.accepted_by_gate),
-            promotion_ready=False,
+            promotion_ready=bool(candidates) and all(gate.passed for gate in quality_gates),
             dataset_fingerprint=manifest_data.get("dataset_fingerprint"),
+            category_profiles=category_profiles,
+            quality_gates=quality_gates,
+            review_protocol=self._review_protocol(bool(candidates) and all(gate.passed for gate in quality_gates)),
             review_file=str(path),
             review_manifest=str(manifest) if manifest.exists() else None,
             preview_candidates=candidates[:limit],
@@ -377,6 +406,35 @@ class DatasetExpansionService:
                     "focus_areas": self._categories(request),
                     "accepted_candidates": len(candidates),
                     "category_counts": dict(Counter(candidate.category for candidate in candidates)),
+                    "category_profiles": [
+                        profile.model_dump()
+                        for profile in self._category_profiles(
+                            self._categories(request),
+                            candidates,
+                        )
+                    ],
+                    "quality_gates": [
+                        gate.model_dump()
+                        for gate in self._quality_gates(
+                            request=request,
+                            candidates=candidates,
+                            generated_raw=len(candidates),
+                            duplicate_candidates=sum(
+                                1 for candidate in candidates if candidate.duplicate_risk == "high"
+                            ),
+                            average_quality=(
+                                round(sum(candidate.quality_score for candidate in candidates) / len(candidates), 1)
+                                if candidates
+                                else 0
+                            ),
+                            coverage_score=self._coverage_score(
+                                self._categories(request),
+                                Counter(candidate.category for candidate in candidates),
+                                request.min_examples_per_category,
+                            ),
+                            diversity_score=self._diversity_score(candidates),
+                        )
+                    ],
                     "average_quality": (
                         round(sum(candidate.quality_score for candidate in candidates) / len(candidates), 1)
                         if candidates
@@ -490,6 +548,114 @@ class DatasetExpansionService:
                 covered += 1
         return round((covered / len(categories)) * 100)
 
+    def _category_profiles(
+        self,
+        categories: list[str],
+        candidates: list[DatasetExpansionCandidate],
+    ) -> list[DatasetExpansionCategoryProfile]:
+        profiles: list[DatasetExpansionCategoryProfile] = []
+        for category in categories:
+            category_candidates = [candidate for candidate in candidates if candidate.category == category]
+            signal_counts = Counter(
+                signal
+                for candidate in category_candidates
+                for signal in candidate.quality_signals
+            )
+            average_quality = (
+                round(
+                    sum(candidate.quality_score for candidate in category_candidates)
+                    / len(category_candidates),
+                    1,
+                )
+                if category_candidates
+                else 0
+            )
+            gate_passed = sum(1 for candidate in category_candidates if candidate.accepted_by_gate)
+            duplicates = sum(1 for candidate in category_candidates if candidate.duplicate_risk == "high")
+            if not category_candidates:
+                status = "missing"
+            elif duplicates:
+                status = "needs_review"
+            elif gate_passed == len(category_candidates) and average_quality >= 90:
+                status = "strong"
+            else:
+                status = "usable"
+            profiles.append(
+                DatasetExpansionCategoryProfile(
+                    category=category,
+                    candidates=len(category_candidates),
+                    average_quality=average_quality,
+                    gate_passed=gate_passed,
+                    duplicates=duplicates,
+                    top_signals=[signal for signal, _ in signal_counts.most_common(4)],
+                    status=status,
+                )
+            )
+        return profiles
+
+    def _quality_gates(
+        self,
+        request: DatasetExpansionRequest,
+        candidates: list[DatasetExpansionCandidate],
+        generated_raw: int,
+        duplicate_candidates: int,
+        average_quality: float,
+        coverage_score: int,
+        diversity_score: int,
+    ) -> list[DatasetExpansionQualityGate]:
+        duplicate_ratio = round(duplicate_candidates / max(1, generated_raw), 3)
+        gate_passed_candidates = sum(1 for candidate in candidates if candidate.accepted_by_gate)
+        return [
+            DatasetExpansionQualityGate(
+                name="target_count",
+                passed=len(candidates) >= request.target_examples,
+                current=len(candidates),
+                target=request.target_examples,
+                severity="blocking",
+                detail="El lote debe alcanzar la cantidad solicitada antes de curacion.",
+            ),
+            DatasetExpansionQualityGate(
+                name="average_quality",
+                passed=average_quality >= request.min_quality_score,
+                current=average_quality,
+                target=request.min_quality_score,
+                severity="blocking",
+                detail="La calidad promedio debe superar el umbral minimo.",
+            ),
+            DatasetExpansionQualityGate(
+                name="category_coverage",
+                passed=coverage_score >= 90,
+                current=coverage_score,
+                target=90,
+                severity="blocking",
+                detail="Las categorias activas deben estar suficientemente representadas.",
+            ),
+            DatasetExpansionQualityGate(
+                name="diversity",
+                passed=diversity_score >= 70,
+                current=diversity_score,
+                target=70,
+                severity="warning",
+                detail="El lote debe evitar repeticiones de patron, escenario o respuesta.",
+            ),
+            DatasetExpansionQualityGate(
+                name="duplicate_ratio",
+                passed=duplicate_ratio <= MAX_DUPLICATE_RATIO,
+                current=duplicate_ratio,
+                target=MAX_DUPLICATE_RATIO,
+                severity="blocking",
+                detail="El lote debe mantener duplicados por debajo del limite aceptable.",
+            ),
+            DatasetExpansionQualityGate(
+                name="candidate_gates",
+                passed=gate_passed_candidates == len(candidates),
+                current=gate_passed_candidates,
+                target=len(candidates),
+                severity="blocking",
+                detail="Cada candidato debe pasar sus checks individuales.",
+            ),
+        ]
+
     def _diversity_score(self, candidates: list[DatasetExpansionCandidate]) -> int:
         if not candidates:
             return 0
@@ -508,6 +674,20 @@ class DatasetExpansionService:
     def _dataset_fingerprint(self, fingerprints: set[str]) -> str:
         payload = "\n".join(sorted(fingerprints))
         return sha256(payload.encode("utf-8")).hexdigest()
+
+    def _review_protocol(self, promotion_ready: bool) -> list[str]:
+        steps = [
+            "1. Revisar manifest: confirmar huella del dataset base, categorias y gates.",
+            "2. Leer candidatos por categoria: eliminar repetidos, vagos o demasiado genericos.",
+            "3. Corregir respuestas valiosas en Human Feedback Studio antes de promover.",
+            "4. Ejecutar Learning Curation sobre el JSONL aprobado.",
+            "5. Correr Evaluation Hardening antes de cualquier QLoRA o fine-tune.",
+        ]
+        if promotion_ready:
+            steps.append("6. Marcar lote como apto solo para curacion humana, no para entrenamiento automatico.")
+        else:
+            steps.append("6. Regenerar o completar categorias fallidas antes de curacion.")
+        return steps
 
     def _fingerprint(self, instruction: str, response: str) -> str:
         payload = f"{self._normalized(instruction)}\n{self._normalized(response)}"

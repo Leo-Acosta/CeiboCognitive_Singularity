@@ -444,6 +444,25 @@ type DatasetExpansionCandidate = {
   review_notes: string[];
 };
 
+type DatasetExpansionCategoryProfile = {
+  category: string;
+  candidates: number;
+  average_quality: number;
+  gate_passed: number;
+  duplicates: number;
+  top_signals: string[];
+  status: string;
+};
+
+type DatasetExpansionQualityGate = {
+  name: string;
+  passed: boolean;
+  current: number | string | null;
+  target: number | string | null;
+  severity: string;
+  detail: string;
+};
+
 type DatasetExpansionReport = {
   expansion_id: string;
   status: string;
@@ -460,6 +479,9 @@ type DatasetExpansionReport = {
   gate_passed_candidates: number;
   promotion_ready: boolean;
   dataset_fingerprint: string | null;
+  category_profiles: DatasetExpansionCategoryProfile[];
+  quality_gates: DatasetExpansionQualityGate[];
+  review_protocol: string[];
   review_file: string | null;
   review_manifest: string | null;
   preview_candidates: DatasetExpansionCandidate[];
@@ -2226,6 +2248,72 @@ export default function Home() {
                       ? "Lote robusto para pasar a curacion humana. Todavia no entrena solo."
                       : "Lote pendiente: revisar gates, diversidad o cobertura antes de curar."}
                   </div>
+
+                  {datasetExpansion.quality_gates.length ? (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Quality gates
+                      </p>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        {datasetExpansion.quality_gates.slice(0, 6).map((gate) => (
+                          <div
+                            key={gate.name}
+                            className={`rounded-md border px-2 py-1.5 text-xs ${
+                              gate.passed
+                                ? "border-emerald-200 bg-white text-emerald-800"
+                                : "border-amber-200 bg-amber-50 text-amber-800"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium">{gate.name}</span>
+                              <span>{gate.passed ? "ok" : "revisar"}</span>
+                            </div>
+                            <p className="mt-0.5 text-[11px] opacity-80">
+                              {gate.current} / {gate.target}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {datasetExpansion.category_profiles.length ? (
+                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Categorias
+                      </p>
+                      <div className="mt-2 max-h-44 space-y-1 overflow-auto pr-1">
+                        {datasetExpansion.category_profiles.slice(0, 10).map((profile) => (
+                          <div
+                            key={profile.category}
+                            className="flex items-center justify-between gap-2 rounded-md bg-slate-50 px-2 py-1.5 text-xs"
+                          >
+                            <div>
+                              <p className="font-medium text-slate-800">{profile.category}</p>
+                              <p className="text-[11px] text-slate-500">
+                                {profile.gate_passed}/{profile.candidates} gate - q{" "}
+                                {profile.average_quality}
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-500">
+                              {profile.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {datasetExpansion.review_protocol.length ? (
+                    <div className="rounded-md border border-slate-200 bg-slate-950 px-3 py-2 text-xs leading-5 text-slate-200">
+                      <p className="font-semibold text-white">Protocolo</p>
+                      <ol className="mt-1 space-y-1">
+                        {datasetExpansion.review_protocol.slice(0, 4).map((step) => (
+                          <li key={step}>{step}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : null}
 
                   {datasetExpansion.review_file ? (
                     <p className="break-all rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">

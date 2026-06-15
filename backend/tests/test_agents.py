@@ -1205,6 +1205,11 @@ async def test_dataset_expansion_builds_review_file_without_touching_main_datase
         assert report.gate_passed_candidates == 100
         assert report.promotion_ready is True
         assert report.dataset_fingerprint is not None
+        assert len(report.category_profiles) == 10
+        assert all(profile.status == "strong" for profile in report.category_profiles)
+        assert all(gate.passed for gate in report.quality_gates)
+        assert any(gate.name == "candidate_gates" for gate in report.quality_gates)
+        assert report.review_protocol[0].startswith("1. Revisar manifest")
         assert report.preview_candidates[0].requires_human_review is True
         assert report.preview_candidates[0].accepted_by_gate is True
         assert report.preview_candidates[0].fingerprint
@@ -1240,6 +1245,11 @@ async def test_dataset_expansion_latest_reads_generated_candidates():
         assert latest.coverage_score == 100
         assert latest.diversity_score >= 70
         assert latest.gate_passed_candidates == built.gate_passed_candidates
+        assert len(latest.category_profiles) == 3
+        assert latest.category_profiles[0].candidates > 0
+        assert latest.quality_gates
+        assert latest.promotion_ready is True
+        assert latest.review_protocol
     finally:
         for path in review_dir.glob("*"):
             path.unlink(missing_ok=True)
