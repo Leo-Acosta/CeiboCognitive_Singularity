@@ -133,12 +133,12 @@ def test_qwen3b_smoke_config_is_fast_and_non_production():
     )
 
     assert config["base_model"] == "Qwen/Qwen2.5-3B-Instruct"
-    assert config["dataset_path"] == "training/datasets/ceibo_core/curated.jsonl"
+    assert config["dataset_path"] == "training/datasets/combined/ceibo_dataset_pack_v0.1.curated.jsonl"
     assert config["output_dir"] == "models/adapters/ceibo-core-conversational-qwen3b-smoke-v0.1"
     assert config["lora_r"] == 8
     assert config["lora_alpha"] == 16
     assert config["gradient_accumulation_steps"] == 4
-    assert config["max_steps"] <= 10
+    assert config["max_steps"] <= 5
     assert config["load_in_4bit"] is True
     assert "Not production quality" in config["notes"]
 

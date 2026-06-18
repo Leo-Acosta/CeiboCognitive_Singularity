@@ -331,3 +331,11 @@ propiedad intelectual, no evasion, no malware y clean-room.
 El primer paquete entrenable se concentra en Ceibo Core Conversational, Ceibo
 Legal Laboral y Ceibo Ingenieria Inversa. Su objetivo es preparar Qwen 3B
 smoke test, evaluacion, curacion y futuros adaptadores Qwen 7B LoRA/QLoRA.
+
+Readiness del smoke test:
+
+```powershell
+python training/scripts/preflight_qwen3b_smoke.py
+python training/scripts/dry_run_qwen3b_dataset.py --limit 5
+python training/scripts/create_baseline_prompts.py
+```

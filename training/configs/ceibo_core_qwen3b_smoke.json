@@ -1,6 +1,7 @@
 {
+  "name": "ceibo-core-conversational-qwen3b-smoke-v0.1",
   "base_model": "Qwen/Qwen2.5-3B-Instruct",
-  "dataset_path": "training/datasets/ceibo_core/curated.jsonl",
+  "dataset_path": "training/datasets/combined/ceibo_dataset_pack_v0.1.curated.jsonl",
   "output_dir": "models/adapters/ceibo-core-conversational-qwen3b-smoke-v0.1",
   "lora_r": 8,
   "lora_alpha": 16,
@@ -14,15 +15,12 @@
   "bf16": false,
   "fp16": true,
   "load_in_4bit": true,
-  "target_modules": [
-    "q_proj",
-    "k_proj",
-    "v_proj",
-    "o_proj",
-    "gate_proj",
-    "up_proj",
-    "down_proj"
-  ],
-  "notes": "Smoke test only. Not production quality.",
-  "max_steps": 10
+  "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+  "notes": "Smoke test only. Not production quality. Used to validate Qwen 3B + QLoRA + Dataset Pack v0.1 pipeline.",
+  "max_steps": 5,
+  "verticals": ["ceibo_core", "ceibo_legal", "ceibo_reverse_engineering"],
+  "preserve_natural_dialogue": true,
+  "dataset_pack": "v0.1",
+  "intended_use": "smoke_test_only",
+  "model_family": "qwen"
 }

@@ -42,7 +42,7 @@ def apply_overrides(config: dict, args: argparse.Namespace) -> dict:
     if args.base_model:
         updated["base_model"] = args.base_model
     if args.dataset:
-        updated["dataset"] = args.dataset
+        updated["dataset_path"] = args.dataset
     if args.output_dir:
         updated["output_dir"] = args.output_dir
     if args.max_steps is not None:
@@ -50,6 +50,60 @@ def apply_overrides(config: dict, args: argparse.Namespace) -> dict:
     if args.local_files_only is not None:
         updated["local_files_only"] = args.local_files_only
     return updated
+
+
+def get_dataset_path(config: dict) -> str:
+    return str(config.get("dataset_path") or config.get("dataset") or "")
+
+
+def detect_model_family(base_model: str) -> str:
+    normalized = base_model.casefold()
+    if "qwen" in normalized:
+        return "qwen"
+    if "mistral" in normalized:
+        return "mistral"
+    return "generic"
+
+
+def format_training_example(
+    example: dict,
+    model_family: str = "qwen",
+    tokenizer=None,
+) -> str:
+    instruction = str(example.get("instruction") or "").strip()
+    input_text = str(example.get("input") or "").strip()
+    response = str(example.get("response") or "").strip()
+    user = instruction if not input_text else f"{instruction}\n\nInput: {input_text}"
+    system_prompt = (
+        "Sos Ceibo Core, el cerebro conversacional, cognitivo y agente de Ceibo AI. "
+        "Respondés en español argentino profesional, con naturalidad, seguridad y claridad."
+    )
+
+    if model_family == "qwen":
+        if tokenizer is not None and getattr(tokenizer, "chat_template", None):
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user},
+                {"role": "assistant", "content": response},
+            ]
+            return tokenizer.apply_chat_template(messages, tokenize=False)
+        return (
+            "<|im_start|>system\n"
+            f"{system_prompt}\n"
+            "<|im_end|>\n"
+            "<|im_start|>user\n"
+            f"Instruction: {instruction}\n"
+            f"Input: {input_text}\n"
+            "<|im_end|>\n"
+            "<|im_start|>assistant\n"
+            f"{response}\n"
+            "<|im_end|>"
+        )
+
+    if model_family == "mistral":
+        return f"<s>[INST] {user} [/INST]\n{response}</s>"
+
+    return f"Instruction: {instruction}\nInput: {input_text}\nResponse: {response}"
 
 
 def count_jsonl_examples(path: Path) -> int:
@@ -111,7 +165,7 @@ def build_manifest(
     log_path: Path | None = None,
     manifest_path: Path | None = None,
 ) -> dict:
-    dataset_path = resolve_project_path(config["dataset"])
+    dataset_path = resolve_project_path(get_dataset_path(config))
     output_dir = resolve_project_path(config["output_dir"])
     return {
         "run_id": run_id,
@@ -151,7 +205,7 @@ def preflight(
     dependencies = dependency_status()
     missing = [item["name"] for item in dependencies if item["required"] and not item["available"]]
     warnings: list[str] = []
-    dataset_path = resolve_project_path(config["dataset"])
+    dataset_path = resolve_project_path(get_dataset_path(config))
     dataset_examples = count_jsonl_examples(dataset_path)
 
     if not dataset_path.exists():
@@ -206,13 +260,28 @@ def load_training_records(path: Path) -> list[dict]:
             if not instruction or not response:
                 raise ValueError(f"Invalid training record at line {line_number}")
             input_text = str(record.get("input") or "").strip()
-            prompt = instruction if not input_text else f"{instruction}\n\nContexto:\n{input_text}"
             records.append(
                 {
-                    "text": f"<s>[INST] {prompt} [/INST]\n{response}</s>",
+                    "example": record,
+                    "text": format_training_example(record, model_family="mistral"),
                 }
             )
     return records
+
+
+def load_training_examples(path: Path) -> list[dict]:
+    examples: list[dict] = []
+    with path.open("r", encoding="utf-8-sig") as file:
+        for line_number, line in enumerate(file, start=1):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            instruction = str(record.get("instruction") or "").strip()
+            response = str(record.get("response") or "").strip()
+            if not instruction or not response:
+                raise ValueError(f"Invalid training record at line {line_number}")
+            examples.append(record)
+    return examples
 
 
 def run_training(
@@ -257,8 +326,6 @@ def run_training(
         TrainingArguments,
     )
 
-    records = load_training_records(dataset_path)
-    dataset = Dataset.from_list(records)
     tokenizer = AutoTokenizer.from_pretrained(
         config["base_model"],
         local_files_only=bool(config.get("local_files_only", False)),
@@ -267,6 +334,13 @@ def run_training(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    model_family = str(config.get("model_family") or detect_model_family(str(config["base_model"])))
+    examples = load_training_examples(dataset_path)
+    records = [
+        {"text": format_training_example(example, model_family=model_family, tokenizer=tokenizer)}
+        for example in examples
+    ]
+    dataset = Dataset.from_list(records)
     max_seq_length = int(config.get("max_seq_length", 2048))
 
     def tokenize(batch: dict) -> dict:
@@ -295,7 +369,7 @@ def run_training(
     )
     model = prepare_model_for_kbit_training(model)
     lora_config = LoraConfig(
-        r=int(config.get("lora_rank", 16)),
+        r=int(config.get("lora_r", config.get("lora_rank", 16))),
         lora_alpha=int(config.get("lora_alpha", 32)),
         target_modules=config.get(
             "target_modules",
@@ -308,7 +382,9 @@ def run_training(
     model = get_peft_model(model, lora_config)
     training_args = TrainingArguments(
         output_dir=str(output_dir),
-        per_device_train_batch_size=int(config.get("per_device_train_batch_size", 1)),
+        per_device_train_batch_size=int(
+            config.get("batch_size", config.get("per_device_train_batch_size", 1))
+        ),
         gradient_accumulation_steps=int(config.get("gradient_accumulation_steps", 4)),
         learning_rate=float(config.get("learning_rate", 2e-4)),
         num_train_epochs=float(config.get("epochs", 1)),

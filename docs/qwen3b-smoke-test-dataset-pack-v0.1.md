@@ -26,7 +26,14 @@ python -c "import json,pathlib; [json.loads(l) for p in pathlib.Path('training/d
 Si el runner esta disponible:
 
 ```powershell
+python training/scripts/preflight_qwen3b_smoke.py --config training/configs/ceibo_core_qwen3b_smoke.json
 python training/scripts/run_qlora.py --config training/configs/ceibo_core_qwen3b_smoke.json --preflight-only
+```
+
+## Dry-run de formato
+
+```powershell
+python training/scripts/dry_run_qwen3b_dataset.py --limit 5
 ```
 
 ## QLoRA smoke
@@ -50,6 +57,12 @@ respuesta.
 
 Comparar modelo base vs base + prompt vs base + RAG vs adaptador. Evaluar
 naturalidad, seguridad, guardrails, estilo argentino y utilidad.
+
+Para crear prompts manuales:
+
+```powershell
+python training/scripts/create_baseline_prompts.py
+```
 
 ## Resultados esperados
 
