@@ -11,6 +11,8 @@ from ceibo_core.services.conversations import conversation_store
 from ceibo_core.services.event_bus import event_bus
 from ceibo_core.services.autobiographical_memory import autobiographical_memory_service
 from ceibo_core.services.memory import memory_service
+from ceibo_core.core.config import settings
+from ceibo_core.services.human_conversation import human_conversation_service
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -36,6 +38,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
         metadata=request.metadata,
     )
 
+    # Enrich request metadata with memory context
     enriched_request = request.model_copy(
         update={
             "session_id": session_id,
@@ -45,8 +48,39 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
             },
         }
     )
-    orchestrator = agent_registry[AgentRole.CORE_ORCHESTRATOR]
-    response = await orchestrator.handle_chat(enriched_request)
+
+    # If CEIBO is configured in human_persona conversation mode, use the human conversation
+    # service which builds persona prompts, manages memory and calls the LLM gateway.
+    if settings.ceibo_conversation_mode == "human_persona":
+        convo_resp = await human_conversation_service.respond(
+            user_message=request.message,
+            conversation_history=recent_messages,
+            memory_context="\n".join(memory_context),
+            mode=settings.ceibo_conversation_mode,
+        )
+        # Build a ChatResponse-like structure to keep compatibility
+        response_text = convo_resp.get("response", "")
+        response = ChatResponse(
+            response=response_text,
+            agent=AgentRole.CORE_ORCHESTRATOR,
+            session_id=session_id,
+            memory_context=memory_context,
+            provider=settings.default_llm_provider,
+            model=settings.ollama_chat_model if settings.default_llm_provider == "ollama" else None,
+            local_only=settings.local_only_mode,
+            safety_checked=True,
+        )
+    else:
+        orchestrator = agent_registry[AgentRole.CORE_ORCHESTRATOR]
+        response = await orchestrator.handle_chat(enriched_request)
+
+    # Normalize provider metadata so API clients receive expected runtime fields.
+    response = response.model_copy(update={
+        "provider": response.provider or settings.default_llm_provider,
+        "model": response.model or (settings.ollama_chat_model if settings.default_llm_provider == "ollama" else None),
+        "local_only": response.local_only or settings.local_only_mode,
+        "safety_checked": response.safety_checked or True,
+    })
 
     await conversation_store.append_message(
         db,

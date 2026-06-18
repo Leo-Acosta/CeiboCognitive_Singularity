@@ -17,6 +17,14 @@ node_modules/
 dist/
 build/
 /models/
+!/models/
+!/models/README.md
+!/models/adapters/
+!/models/adapters/README.md
+!/models/adapters/.gitkeep
+!/models/registry/
+!/models/registry/README.md
+!/models/registry/model_registry.example.json
 training/runs/
 training/evaluations/
 training/reflections/

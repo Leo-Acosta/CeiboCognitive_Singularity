@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     embeddings_provider: str = "local"
     embedding_model: str = "text-embedding-3-small"
     ollama_embedding_model: str = "nomic-embed-text"
-    ollama_base_url: str = "http://ollama:11434"
+    ollama_base_url: str = "http://127.0.0.1:11434"
     teacher_provider: str = "ollama"
     teacher_base_url: str = "http://127.0.0.1:11434"
     teacher_model: str = "mistral:latest"
@@ -36,6 +36,25 @@ class Settings(BaseSettings):
         "Ayudar y ensenar a su usuario principal, facilitando cada requerimiento "
         "con respuestas claras, utiles, accionables y adaptadas a lo que necesite."
     )
+
+    # CEIBO persona and LLM runtime configuration
+    ceibo_conversation_mode: str = "human_persona"
+    ceibo_language: str = "es-AR"
+    ceibo_user_name: str = "Leonardo"
+
+    # Local LLM / Ollama safe defaults
+    default_llm_provider: str = "ollama"
+    allow_external_llm: bool = False
+    local_only_mode: bool = True
+    ollama_chat_model: str = "qwen3:8b"
+    ollama_timeout_seconds: int = 300
+    ollama_think: bool = False
+    ollama_hide_thinking: bool = True
+
+    # Security flags
+    block_non_local_ollama: bool = True
+    enable_security_audit_log: bool = True
+    require_confirmation_for_sensitive_actions: bool = True
 
     database_url: str = "postgresql+asyncpg://ceibo:ceibo_dev_password@postgres:5432/ceibo_core"
     redis_url: str = "redis://redis:6379/0"

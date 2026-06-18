@@ -113,6 +113,12 @@ class ChatResponse(BaseModel):
     memory_context: list[str] = Field(default_factory=list)
     trace_id: UUID = Field(default_factory=uuid4)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # Optional runtime metadata
+    provider: str | None = None
+    model: str | None = None
+    mode: str | None = None
+    local_only: bool = False
+    safety_checked: bool = False
 
 
 class VoiceAuthorizationRequest(BaseModel):

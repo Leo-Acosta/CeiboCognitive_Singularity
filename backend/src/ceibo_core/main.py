@@ -12,11 +12,13 @@ from ceibo_core.api.routes.devcore import router as devcore_router
 from ceibo_core.api.routes.engine import router as engine_router
 from ceibo_core.api.routes.health import router as health_router
 from ceibo_core.api.routes.memory import router as memory_router
+from ceibo_core.api.routes.security import router as security_router
 from ceibo_core.api.routes.status import router as status_router
 from ceibo_core.api.routes.tasks import router as tasks_router
 from ceibo_core.api.routes.voice import router as voice_router
 from ceibo_core.api.routes.ws import router as ws_router
 from ceibo_core.core.config import settings
+import asyncio
 from ceibo_core.core.logging import configure_logging
 from ceibo_core.db.session import init_db
 from ceibo_core.services.event_bus import event_bus
@@ -32,7 +34,11 @@ async def lifespan(app: FastAPI):
         logger.info("database_initialized")
     except Exception as exc:  # pragma: no cover - local dev may run without Postgres
         logger.warning("database_unavailable", error=str(exc))
-    await event_bus.connect()
+    try:
+        asyncio.create_task(event_bus.connect())
+        logger.info("event_bus_connect_scheduled")
+    except Exception as exc:  # pragma: no cover - optional external service
+        logger.warning("event_bus_unavailable", error=str(exc))
     yield
     await event_bus.close()
 
@@ -64,6 +70,7 @@ app.include_router(cognition_router, prefix="/api/v1")
 app.include_router(devcore_router, prefix="/api/v1")
 app.include_router(engine_router, prefix="/api/v1")
 app.include_router(memory_router, prefix="/api/v1")
+app.include_router(security_router, prefix="/api/v1")
 app.include_router(status_router, prefix="/api/v1")
 app.include_router(tasks_router, prefix="/api/v1")
 app.include_router(voice_router, prefix="/api/v1")
