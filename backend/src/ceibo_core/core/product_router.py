@@ -13,6 +13,7 @@ ProductMode = Literal[
     "economics",
     "finance",
     "agents",
+    "reverse_engineering",
     "general",
 ]
 
@@ -113,6 +114,25 @@ MODE_ROUTES: dict[ProductMode, ProductRoute] = {
         tools=["mission_planner", "agent_run_report"],
         human_interaction=HumanInteractionConfig(),
     ),
+    "reverse_engineering": ProductRoute(
+        mode="reverse_engineering",
+        agent="architecture_analysis_agent",
+        rag_namespace="ceibo_reverse_engineering",
+        adapter="ceibo_reverse_engineering_qwen7b_lora",
+        guardrails=[
+            "authorized_analysis_only",
+            "no_ip_infringement",
+            "no_drm_circumvention",
+            "clean_room_required_for_reimplementation",
+            "no_malware_reproduction",
+        ],
+        tools=[
+            "architecture_mapper",
+            "dependency_analyzer",
+            "clean_room_spec_generator",
+        ],
+        human_interaction=HumanInteractionConfig(),
+    ),
     "general": ProductRoute(
         mode="general",
         agent="general_assistant_agent",
@@ -133,6 +153,19 @@ KEYWORDS: dict[ProductMode, tuple[str, ...]] = {
     "economics": ("economia", "macro", "inflacion", "tipo de cambio", "riesgo pais"),
     "finance": ("finanzas", "trading", "valuacion", "dcf", "portfolio", "inversion"),
     "agents": ("agente", "autonomo", "planificar", "ejecutar", "herramienta"),
+    "reverse_engineering": (
+        "ingenieria inversa",
+        "reverse engineering",
+        "clean-room",
+        "clean room",
+        "interoperabilidad",
+        "sistema legacy",
+        "binario",
+        "firmware",
+        "protocolo",
+        "arquitectura",
+        "dependencias",
+    ),
 }
 
 

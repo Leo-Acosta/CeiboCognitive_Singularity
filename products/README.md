@@ -27,3 +27,10 @@ Ceibo AI es una plataforma argentina de inteligencia artificial aplicada que com
 - ceibo-code
 - ceibo-economics
 - ceibo-agents
+
+## Ceibo Ingenieria Inversa
+
+Nueva vertical para analisis, documentacion, auditoria, interoperabilidad,
+migracion y clean-room reimplementation de tecnologias propias, open-source o
+autorizadas. Ceibo Core la opera sin perder conversacion natural y aplicando
+guardrails de autorizacion, propiedad intelectual, seguridad y no evasion.

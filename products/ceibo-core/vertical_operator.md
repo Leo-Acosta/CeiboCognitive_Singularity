@@ -12,3 +12,10 @@ usar.
 La seleccion interna nunca reemplaza la conversacion humana: la clasificacion
 de modo es una funcion privada de Core y la respuesta se mantiene clara,
 argentina, profesional y util.
+
+## Reverse Engineering
+
+Ceibo Core tambien opera `reverse_engineering`: recibe una conversacion comun,
+pide autorizacion cuando corresponde, activa agentes de arquitectura,
+software, protocolos, binarios, hardware o clean-room, consulta RAG
+`ceibo_reverse_engineering`, aplica guardrails y mantiene dialogo natural.

@@ -21,3 +21,9 @@ SaaS local-first con conversacion humana natural, documentos, agentes y RAG por 
 - Las acciones sensibles requieren aprobacion humana.
 - No se usan datos personales reales ni informacion confidencial en ejemplos.
 - Los adaptadores LoRA/QLoRA se versionan y se comparan contra baseline.
+
+## Ceibo Ingenieria Inversa
+
+Ceibo AI incorpora reverse engineering seguro para trabajo tecnico real:
+documentar sistemas heredados, mapear arquitecturas, explicar tecnologias,
+analizar protocolos abiertos/autorizados y producir planes clean-room.

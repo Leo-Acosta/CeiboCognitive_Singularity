@@ -316,3 +316,12 @@ argentino; crear MVP comercial, landing page, beta cerrada, politica de
 privacidad, terminos de uso e infraestructura Ollama local con futura
 compatibilidad vLLM.
 
+## Ceibo Ingenieria Inversa
+
+Ceibo AI incorpora Ceibo Ingenieria Inversa / Ceibo Reverse Engineering como
+vertical especializada para analizar, comprender, documentar, auditar y
+reconstruir legalmente tecnologias propias, open-source o autorizadas. Opera
+con Ceibo Core como cerebro conversacional, usa RAG
+`ceibo_reverse_engineering`, adaptador planificado
+`ceibo_reverse_engineering_qwen7b_lora` y guardrails de autorizacion,
+propiedad intelectual, no evasion, no malware y clean-room.

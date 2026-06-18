@@ -7,3 +7,9 @@ page, demos reales, primeros usuarios y contenido educativo.
 
 Ceibo Core es el diferencial: cerebro conversacional, cognitivo y agente que
 opera verticales sin perder dialogo humano natural.
+
+## Vertical Reverse Engineering
+
+Ceibo Ingenieria Inversa puede entrar como vertical tecnica para equipos de
+software, auditoria, migracion legacy, interoperabilidad y documentacion. Su
+MVP debe comenzar con reportes de arquitectura, dependencia y clean-room.

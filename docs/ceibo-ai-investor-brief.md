@@ -12,3 +12,10 @@ Layer preservada.
 Riesgos: calidad de datos, regulacion, seguridad, costo de inferencia y
 adopcion. Mitigaciones: curacion, evaluaciones, guardrails, local-first,
 cloud-ready y human-in-the-loop.
+
+## Expansion: Reverse Engineering Seguro
+
+Ceibo AI suma una vertical de reverse engineering seguro para documentar,
+auditar y migrar tecnologia autorizada. Refuerza el moat tecnico con
+workflows de arquitectura, interoperabilidad, legacy modernization y
+clean-room reimplementation.

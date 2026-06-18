@@ -18,6 +18,20 @@ def test_product_router_preserves_human_dialogue_for_legal_mode():
     assert route["human_interaction"]["ask_clarifying_questions"] is True
 
 
+def test_product_router_recognizes_reverse_engineering_mode():
+    route = route_product_query(
+        "Necesito ingenieria inversa autorizada para documentar arquitectura legacy"
+    )
+
+    assert route["mode"] == "reverse_engineering"
+    assert route["agent"] == "architecture_analysis_agent"
+    assert route["rag_namespace"] == "ceibo_reverse_engineering"
+    assert route["adapter"] == "ceibo_reverse_engineering_qwen7b_lora"
+    assert "authorized_analysis_only" in route["guardrails"]
+    assert "clean_room_spec_generator" in route["tools"]
+    assert route["human_interaction"]["preserve_natural_dialogue"] is True
+
+
 def test_training_configs_are_valid_json_and_reference_datasets():
     configs = sorted((REPO_ROOT / "training" / "configs").glob("ceibo_*_lora.json"))
     configs += [REPO_ROOT / "training" / "configs" / "ceibo_core_qwen3b_smoke.json"]
@@ -53,3 +67,4 @@ def test_model_registry_example_has_planned_adapters():
     ids = {entry["id"] for entry in registry["entries"]}
     assert "ceibo-core-qwen7b-lora-v0.1" in ids
     assert "ceibo-code-qwen-coder7b-lora-v0.1" in ids
+    assert "ceibo-reverse-engineering-qwen7b-lora-v0.1" in ids

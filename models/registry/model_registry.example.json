@@ -56,6 +56,14 @@
       "dataset_version": "v0.1",
       "status": "planned",
       "metrics": {}
+    },
+    {
+      "id": "ceibo-reverse-engineering-qwen7b-lora-v0.1",
+      "base_model": "Qwen/Qwen2.5-7B-Instruct",
+      "adapter_path": "models/adapters/ceibo-reverse-engineering-qwen7b-lora-v0.1",
+      "dataset_version": "v0.1",
+      "status": "planned",
+      "metrics": {}
     }
   ]
 }
