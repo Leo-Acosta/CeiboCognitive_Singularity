@@ -27,3 +27,7 @@ SaaS local-first con conversacion humana natural, documentos, agentes y RAG por 
 Ceibo AI incorpora reverse engineering seguro para trabajo tecnico real:
 documentar sistemas heredados, mapear arquitecturas, explicar tecnologias,
 analizar protocolos abiertos/autorizados y producir planes clean-room.
+
+## Ceibo Tesis / Academic Writing
+
+Ceibo AI suma una vertical para transformar ideas, notas y fuentes verificadas en planes academicos, matrices metodologicas, capitulos y defensas, sin reemplazar autoria humana.

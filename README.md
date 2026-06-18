@@ -339,3 +339,7 @@ python training/scripts/preflight_qwen3b_smoke.py
 python training/scripts/dry_run_qwen3b_dataset.py --limit 5
 python training/scripts/create_baseline_prompts.py
 ```
+
+## Ceibo Tesis / Academic Writing
+
+Ceibo AI incorpora Ceibo Tesis como vertical para investigacion, tesis, tesinas, trabajos finales, papers y redaccion academica asistida, con integridad academica, fuentes verificadas y autoria humana.

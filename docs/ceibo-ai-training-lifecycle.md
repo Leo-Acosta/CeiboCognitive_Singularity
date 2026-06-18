@@ -26,3 +26,7 @@ El primer ciclo de datos entrenables usa ejemplos sinteticos controlados,
 seguros y revisables para Ceibo Core Conversational, Legal Laboral y Reverse
 Engineering. Antes de entrenar se valida JSONL, se separan bad examples, se
 ejecutan evals y se corre un Qwen 3B smoke test de bajo costo.
+
+## Ceibo Academic Writing Dataset
+
+La vertical academica requiere datasets con ejemplos seguros de metodologia, estructura, APA 7, coherencia y defensa, separados de bad examples de plagio, fuentes inventadas y datos fabricados.

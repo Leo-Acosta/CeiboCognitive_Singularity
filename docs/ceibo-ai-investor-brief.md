@@ -19,3 +19,7 @@ Ceibo AI suma una vertical de reverse engineering seguro para documentar,
 auditar y migrar tecnologia autorizada. Refuerza el moat tecnico con
 workflows de arquitectura, interoperabilidad, legacy modernization y
 clean-room reimplementation.
+
+## Expansion: Academic Writing
+
+Ceibo Tesis amplia el mercado hacia educacion superior e investigacion, con workflows de metodologia, escritura academica, defensa oral e integridad academica verificable.

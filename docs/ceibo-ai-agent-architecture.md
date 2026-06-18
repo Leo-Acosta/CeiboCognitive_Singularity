@@ -14,3 +14,7 @@ La vertical agrega agentes de software reverse, analisis de arquitectura,
 protocolos, binarios, reconstruccion documental, clean-room reimplementation,
 hardware y explicacion tecnica. Las acciones sensibles requieren confirmacion
 de autorizacion y revision humana.
+
+## Academic Writing Agents
+
+Ceibo Tesis agrega agentes de plan de tesis, metodologia, revision bibliografica, marco teorico, hipotesis, editor academico, citas, defensa, matriz de investigacion y papers.

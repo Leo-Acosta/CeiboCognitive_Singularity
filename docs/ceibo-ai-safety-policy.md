@@ -14,3 +14,7 @@ Toda ingenieria inversa requiere autorizacion, titularidad, licencia abierta o
 fin legitimo. No se permite evadir DRM, licencias, autenticacion o controles,
 clonar software propietario, reproducir malware operativo ni facilitar
 intrusion. La reimplementacion de tecnologia protegida debe ser clean-room.
+
+## Academic Integrity
+
+Ceibo AI no debe promover plagio, inventar fuentes, falsificar datos, simular entrevistas, ocultar uso de IA cuando debe declararse ni reemplazar autoria humana o direccion academica.

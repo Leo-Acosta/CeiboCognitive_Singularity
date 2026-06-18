@@ -14,6 +14,7 @@ ProductMode = Literal[
     "finance",
     "agents",
     "reverse_engineering",
+    "academic_writing",
     "general",
 ]
 
@@ -133,6 +134,27 @@ MODE_ROUTES: dict[ProductMode, ProductRoute] = {
         ],
         human_interaction=HumanInteractionConfig(),
     ),
+    "academic_writing": ProductRoute(
+        mode="academic_writing",
+        agent="thesis_planner_agent",
+        rag_namespace="ceibo_academic_writing",
+        adapter="ceibo_academic_writing_qwen7b_lora",
+        guardrails=[
+            "academic_integrity_required",
+            "no_fake_sources",
+            "human_author_required",
+            "no_fabricated_data",
+            "institutional_rules_must_be_respected",
+        ],
+        tools=[
+            "thesis_outline_generator",
+            "methodology_matrix_builder",
+            "literature_review_table_builder",
+            "apa7_reference_helper",
+            "coherence_checker",
+        ],
+        human_interaction=HumanInteractionConfig(),
+    ),
     "general": ProductRoute(
         mode="general",
         agent="general_assistant_agent",
@@ -165,6 +187,27 @@ KEYWORDS: dict[ProductMode, tuple[str, ...]] = {
         "protocolo",
         "arquitectura",
         "dependencias",
+    ),
+    "academic_writing": (
+        "tesis",
+        "tesina",
+        "tesis doctoral",
+        "tesis de maestria",
+        "tesis de maestría",
+        "trabajo final",
+        "paper",
+        "proyecto de investigacion",
+        "proyecto de investigación",
+        "metodologia",
+        "metodología",
+        "hipotesis",
+        "hipótesis",
+        "objetivos",
+        "estado del arte",
+        "marco teorico",
+        "marco teórico",
+        "apa 7",
+        "defensa oral",
     ),
 }
 

@@ -34,3 +34,7 @@ Nueva vertical para analisis, documentacion, auditoria, interoperabilidad,
 migracion y clean-room reimplementation de tecnologias propias, open-source o
 autorizadas. Ceibo Core la opera sin perder conversacion natural y aplicando
 guardrails de autorizacion, propiedad intelectual, seguridad y no evasion.
+
+## Ceibo Tesis
+
+Vertical academica para investigacion, metodologia, tesis, tesinas, papers, defensa oral, APA 7 y revision critica. Ceibo Core la opera preservando dialogo natural e integridad academica.

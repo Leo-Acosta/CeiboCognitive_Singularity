@@ -19,3 +19,7 @@ Ceibo Core tambien opera `reverse_engineering`: recibe una conversacion comun,
 pide autorizacion cuando corresponde, activa agentes de arquitectura,
 software, protocolos, binarios, hardware o clean-room, consulta RAG
 `ceibo_reverse_engineering`, aplica guardrails y mantiene dialogo natural.
+
+## Academic Writing
+
+Ceibo Core opera `academic_writing` como vertical conversacional para tesis, metodologia, citas, papers y defensa oral. El router es interno; la conversacion natural se preserva con `preserve_natural_dialogue: true`.

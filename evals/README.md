@@ -6,3 +6,7 @@ base + RAG, base + adaptador y base + adaptador + RAG.
 
 Cada linea JSONL declara `id`, `vertical`, `input`, `expected_behavior`,
 `must_include`, `must_avoid`, `risk_level` y `scoring_dimensions`.
+
+## Ceibo Academic Writing Eval
+
+Evalua estructura academica, coherencia metodologica, integridad academica, no invencion de fuentes, utilidad, espanol argentino y preguntas aclaratorias.

@@ -32,6 +32,19 @@ def test_product_router_recognizes_reverse_engineering_mode():
     assert route["human_interaction"]["preserve_natural_dialogue"] is True
 
 
+def test_product_router_recognizes_academic_writing_mode():
+    route = route_product_query("Necesito armar una tesis doctoral con metodologia y APA 7")
+
+    assert route["mode"] == "academic_writing"
+    assert route["agent"] == "thesis_planner_agent"
+    assert route["rag_namespace"] == "ceibo_academic_writing"
+    assert route["adapter"] == "ceibo_academic_writing_qwen7b_lora"
+    assert "academic_integrity_required" in route["guardrails"]
+    assert "no_fake_sources" in route["guardrails"]
+    assert "thesis_outline_generator" in route["tools"]
+    assert route["human_interaction"]["preserve_natural_dialogue"] is True
+
+
 def test_training_configs_are_valid_json_and_reference_datasets():
     configs = sorted((REPO_ROOT / "training" / "configs").glob("ceibo_*_lora.json"))
     configs += [REPO_ROOT / "training" / "configs" / "ceibo_core_qwen3b_smoke.json"]
@@ -68,6 +81,7 @@ def test_model_registry_example_has_planned_adapters():
     assert "ceibo-core-qwen7b-lora-v0.1" in ids
     assert "ceibo-code-qwen-coder7b-lora-v0.1" in ids
     assert "ceibo-reverse-engineering-qwen7b-lora-v0.1" in ids
+    assert "ceibo-academic-writing-qwen7b-lora-v0.1" in ids
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -79,6 +93,7 @@ def test_dataset_pack_v0_1_minimum_counts_and_metadata():
         "ceibo_core": (25, 8, 12),
         "ceibo_legal": (30, 10, 15),
         "ceibo_reverse_engineering": (25, 10, 12),
+        "ceibo_academic_writing": (25, 10, 12),
     }
 
     for vertical, (min_good, min_bad, min_eval) in expectations.items():
@@ -123,6 +138,35 @@ def test_dataset_pack_eval_schema_and_dimensions():
     assert all("human_review_required" in row["scoring_dimensions"] for row in legal_rows)
     reverse_rows = _read_jsonl(REPO_ROOT / "evals" / "ceibo_reverse_engineering_eval.jsonl")
     assert all("authorization_check" in row["scoring_dimensions"] for row in reverse_rows)
+    academic_rows = _read_jsonl(REPO_ROOT / "evals" / "ceibo_academic_writing_eval.jsonl")
+    assert all("academic_integrity" in row["scoring_dimensions"] for row in academic_rows)
+
+
+def test_academic_writing_config_and_dataset_guardrails():
+    config = json.loads(
+        (
+            REPO_ROOT
+            / "training"
+            / "configs"
+            / "ceibo_academic_writing_qwen7b_lora.json"
+        ).read_text(encoding="utf-8")
+    )
+    rows = _read_jsonl(
+        REPO_ROOT / "training" / "datasets" / "ceibo_academic_writing" / "curated.jsonl"
+    )
+    bad_rows = _read_jsonl(
+        REPO_ROOT / "training" / "datasets" / "ceibo_academic_writing" / "bad_examples.jsonl"
+    )
+
+    assert config["base_model"] == "Qwen/Qwen2.5-7B-Instruct"
+    assert config["dataset_path"] == "training/datasets/ceibo_academic_writing/curated.jsonl"
+    assert config["preserve_natural_dialogue"] is True
+    assert config["academic_integrity_required"] is True
+    assert rows and bad_rows
+    assert all(row["metadata"]["academic_integrity_required"] is True for row in rows)
+    assert all(row["metadata"]["human_author_required"] is True for row in rows)
+    assert all("bad_example" not in row["tags"] for row in rows)
+    assert all("bad_example" in row["tags"] for row in bad_rows)
 
 
 def test_qwen3b_smoke_config_is_fast_and_non_production():

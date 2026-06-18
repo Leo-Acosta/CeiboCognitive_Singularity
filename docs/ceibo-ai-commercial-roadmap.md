@@ -19,3 +19,7 @@ MVP debe comenzar con reportes de arquitectura, dependencia y clean-room.
 El roadmap comercial incorpora una fase de calidad de datos: revisar
 manualmente ejemplos, medir respuestas base vs prompt vs RAG vs adaptador y
 ampliar las verticales prioritarias a 100 ejemplos antes de Qwen 7B.
+
+## Ceibo Tesis
+
+La hoja de ruta comercial suma una vertical academica para tesistas, investigadores, docentes y profesionales que necesitan estructurar, revisar y defender trabajos con integridad academica.

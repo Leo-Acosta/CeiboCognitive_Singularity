@@ -15,3 +15,7 @@ prompts, adaptador `ceibo_reverse_engineering_qwen7b_lora`, RAG
 `ceibo_reverse_engineering`, herramientas de mapeo y guardrails:
 `authorized_analysis_only`, `no_ip_infringement`, `no_drm_circumvention`,
 `clean_room_required_for_reimplementation` y `no_malware_reproduction`.
+
+## Academic Writing Mode
+
+El router puede clasificar `mode: academic_writing` y activar RAG `ceibo_academic_writing`, adaptador `ceibo_academic_writing_qwen7b_lora`, agentes de tesis/metodologia/citas y guardrails de integridad academica.
