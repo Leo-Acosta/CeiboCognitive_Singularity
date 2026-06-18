@@ -1,23 +1,8 @@
-# ceibo_legal Dataset
+# Ceibo Legal Laboral Dataset Pack v0.1
 
-Formato JSONL:
+Ejemplos buenos: 30. Bad examples: 10. Eval cases: 15.
 
-```json
-{
-  "instruction": "",
-  "input": "",
-  "response": "",
-  "tags": [],
-  "source": "",
-  "rating": 0,
-  "metadata": {
-    "vertical": "",
-    "risk_level": "",
-    "language": "es-AR",
-    "version": "v0.1"
-  }
-}
-```
-
-Reglas: no datos personales reales, no expedientes no anonimizados, no claves,
-no informacion confidencial y no contenido peligroso operativo.
+Asistencia para derecho laboral argentino: demandas, hechos, distracto,
+cartas documento, pruebas, responsabilidad solidaria y petitorio. Todo ejemplo
+debe recordar que es borrador/asistencia, requiere abogado matriculado, no
+garantiza resultado y no inventa jurisprudencia.

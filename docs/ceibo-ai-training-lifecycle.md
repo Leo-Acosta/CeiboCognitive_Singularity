@@ -19,3 +19,10 @@ Qwen 3B sirve para smoke tests; Qwen 7B como base general inicial; Qwen Coder
 7B para Ceibo Code; Mistral queda como alternativa. Ollama sirve para
 ejecucion local/demo. QLoRA requiere modelos compatibles con
 HuggingFace/Transformers y no directamente GGUF/Ollama.
+
+## Dataset Pack v0.1
+
+El primer ciclo de datos entrenables usa ejemplos sinteticos controlados,
+seguros y revisables para Ceibo Core Conversational, Legal Laboral y Reverse
+Engineering. Antes de entrenar se valida JSONL, se separan bad examples, se
+ejecutan evals y se corre un Qwen 3B smoke test de bajo costo.

@@ -1,6 +1,7 @@
-# ceibo_reverse_engineering Dataset
+# Ceibo Reverse Engineering Dataset Pack v0.1
 
-Formato JSONL con `instruction`, `input`, `response`, `tags`, `source`,
-`rating` y `metadata`. Usar solo ejemplos propios, open-source, autorizados o
-educativos. No incluir secretos, credenciales, exploits operativos, malware,
-evasiones, datos privados ni material propietario no autorizado.
+Ejemplos buenos: 25. Bad examples: 10. Eval cases: 12.
+
+Asistencia para analisis autorizado, documentacion, interoperabilidad,
+migracion y clean-room. No incluir DRM bypass, malware, credenciales,
+explotacion de terceros ni copia de codigo propietario.

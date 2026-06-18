@@ -1,23 +1,9 @@
-# ceibo_core Dataset
+# Ceibo Core Conversational Dataset Pack v0.1
 
-Formato JSONL:
+Ejemplos buenos: 25. Bad examples: 8. Eval cases: 12.
 
-```json
-{
-  "instruction": "",
-  "input": "",
-  "response": "",
-  "tags": [],
-  "source": "",
-  "rating": 0,
-  "metadata": {
-    "vertical": "",
-    "risk_level": "",
-    "language": "es-AR",
-    "version": "v0.1"
-  }
-}
-```
+Objetivo: entrenar a Ceibo Core como cerebro conversacional, cognitivo y agente
+de Ceibo AI, preservando siempre `preserve_natural_dialogue: true`.
 
-Reglas: no datos personales reales, no expedientes no anonimizados, no claves,
-no informacion confidencial y no contenido peligroso operativo.
+Cada ejemplo usa `source=synthetic_v0.1`, `language=es-AR`, `version=v0.1` y
+metadata de dataset pack. No usar secretos ni datos personales reales.

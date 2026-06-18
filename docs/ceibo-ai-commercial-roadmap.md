@@ -13,3 +13,9 @@ opera verticales sin perder dialogo humano natural.
 Ceibo Ingenieria Inversa puede entrar como vertical tecnica para equipos de
 software, auditoria, migracion legacy, interoperabilidad y documentacion. Su
 MVP debe comenzar con reportes de arquitectura, dependencia y clean-room.
+
+## Dataset Pack v0.1
+
+El roadmap comercial incorpora una fase de calidad de datos: revisar
+manualmente ejemplos, medir respuestas base vs prompt vs RAG vs adaptador y
+ampliar las verticales prioritarias a 100 ejemplos antes de Qwen 7B.

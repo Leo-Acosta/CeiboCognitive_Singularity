@@ -1,17 +1,16 @@
 {
   "base_model": "Qwen/Qwen2.5-3B-Instruct",
-  "dataset_path": "training/datasets/ceibo_core/seed.jsonl",
-  "output_dir": "models/adapters/ceibo-core-qwen3b-smoke-v0.1",
-  "lora_r": 16,
-  "lora_alpha": 32,
+  "dataset_path": "training/datasets/ceibo_core/curated.jsonl",
+  "output_dir": "models/adapters/ceibo-core-conversational-qwen3b-smoke-v0.1",
+  "lora_r": 8,
+  "lora_alpha": 16,
   "lora_dropout": 0.05,
   "batch_size": 1,
-  "gradient_accumulation_steps": 8,
+  "gradient_accumulation_steps": 4,
   "learning_rate": 0.0002,
-  "max_seq_length": 2048,
-  "num_train_epochs": 1,
-  "save_steps": 50,
-  "logging_steps": 5,
+  "max_seq_length": 1024,
+  "save_steps": 5,
+  "logging_steps": 1,
   "bf16": false,
   "fp16": true,
   "load_in_4bit": true,
@@ -24,5 +23,6 @@
     "up_proj",
     "down_proj"
   ],
-  "notes": "Smoke test conversacional de Ceibo Core."
+  "notes": "Smoke test only. Not production quality.",
+  "max_steps": 10
 }

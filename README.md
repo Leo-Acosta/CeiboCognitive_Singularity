@@ -325,3 +325,9 @@ con Ceibo Core como cerebro conversacional, usa RAG
 `ceibo_reverse_engineering`, adaptador planificado
 `ceibo_reverse_engineering_qwen7b_lora` y guardrails de autorizacion,
 propiedad intelectual, no evasion, no malware y clean-room.
+
+## Dataset Pack v0.1
+
+El primer paquete entrenable se concentra en Ceibo Core Conversational, Ceibo
+Legal Laboral y Ceibo Ingenieria Inversa. Su objetivo es preparar Qwen 3B
+smoke test, evaluacion, curacion y futuros adaptadores Qwen 7B LoRA/QLoRA.
