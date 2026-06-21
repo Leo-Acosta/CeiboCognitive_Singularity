@@ -113,12 +113,54 @@ class ChatResponse(BaseModel):
     memory_context: list[str] = Field(default_factory=list)
     trace_id: UUID = Field(default_factory=uuid4)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    dialogue_trace: "DialogueOrchestrationTrace | None" = None
     # Optional runtime metadata
     provider: str | None = None
     model: str | None = None
     mode: str | None = None
     local_only: bool = False
     safety_checked: bool = False
+
+
+class DialogueSignal(BaseModel):
+    name: str
+    value: str | int | float | bool
+    confidence: float = Field(default=0.5, ge=0, le=1)
+
+
+class DialogueAnalysis(BaseModel):
+    intent: str
+    cognitive_route: str
+    speech_act: str
+    emotional_tone: str
+    response_style: str
+    safety_class: str
+    memory_policy: str
+    language: str = "es-AR"
+    ambiguity_score: float = Field(default=0, ge=0, le=1)
+    irony_likelihood: float = Field(default=0, ge=0, le=1)
+    urgency_score: float = Field(default=0, ge=0, le=1)
+    tool_candidate: str | None = None
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    route_reason: str
+    inferred_needs: list[str] = Field(default_factory=list)
+    signals: list[DialogueSignal] = Field(default_factory=list)
+
+
+class DialogueOrchestrationTrace(BaseModel):
+    analysis: DialogueAnalysis
+    selected_module: str
+    tool_used: str | None = None
+    provider: str | None = None
+    latency_ms: int = 0
+    fallback_used: bool = False
+    safety_checked: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class DialogueOrchestratorResponse(BaseModel):
+    response: str
+    trace: DialogueOrchestrationTrace
 
 
 class VoiceAuthorizationRequest(BaseModel):

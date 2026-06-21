@@ -1548,6 +1548,53 @@ async def test_cognitive_reflection_recommends_autobiographical_memory_for_decis
 
 
 @pytest.mark.asyncio
+async def test_cognitive_reflection_uses_dialogue_trace_as_learning_material():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_dialogue_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_dialogue_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt="Prefiero que CEIBO converse natural y detecte ironias.",
+                response=(
+                    "Puedo conversar con mas naturalidad, leer el tono antes de tomarlo literal "
+                    "y preguntarte con suavidad cuando haya ambiguedad."
+                ),
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "human_dialogue",
+                        "tool_used": None,
+                        "analysis": {
+                            "intent": "emotional_dialogue",
+                            "cognitive_route": "human_dialogue",
+                            "safety_class": "normal",
+                            "memory_policy": "candidate_autobiographical_memory",
+                            "ambiguity_score": 0.2,
+                            "irony_likelihood": 0.7,
+                        },
+                    }
+                },
+            )
+        )
+
+        assert any("human_dialogue" in item for item in record.did_well)
+        assert any("dialogo humano" in item for item in record.should_learn)
+        assert "route:human_dialogue" in record.tags
+        assert record.recommended_memory is not None
+        assert record.recommended_memory.kind == "preference"
+        assert "dialogue-orchestrator-v1" in record.recommended_memory.tags
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_dataset_expansion_builds_review_file_without_touching_main_dataset(monkeypatch):
     dataset_path = Path(".tmp-tests") / f"dataset_expansion_main_{uuid4()}.jsonl"
     review_dir = Path(".tmp-tests") / f"dataset_expansion_reviews_{uuid4()}"

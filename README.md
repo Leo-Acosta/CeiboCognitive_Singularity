@@ -141,6 +141,10 @@ API:
 Evaluation Loop v1 persists the latest report in `training/evaluations/latest_report.json`.
 The training gate reads that report after API restarts and stays blocked when the suite is missing,
 needs attention, or the curated dataset is not ready.
+
+Dialogue Orchestrator v1 is documented in `docs/dialogue-orchestrator-v1.md`. It adds a fast
+chat front-door that classifies intent, tone, risk, ambiguity, irony and tool routing, then feeds
+`dialogue_trace` into autobiographical memory and the Cognitive Reflection Loop.
 - `POST /api/v1/memory/knowledge`
 - `GET /api/v1/memory/knowledge/search`
 - `GET /api/v1/tasks`

@@ -65,6 +65,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
             agent=AgentRole.CORE_ORCHESTRATOR,
             session_id=session_id,
             memory_context=memory_context,
+            dialogue_trace=convo_resp.get("dialogue_trace"),
             provider=settings.default_llm_provider,
             model=settings.ollama_chat_model if settings.default_llm_provider == "ollama" else None,
             local_only=settings.local_only_mode,
@@ -103,6 +104,27 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
         user_id=request.user_id,
         metadata={"role": "assistant", "trace_id": str(response.trace_id)},
     )
+    dialogue_trace = response.dialogue_trace.model_dump(mode="json") if response.dialogue_trace else None
+    reflection_metadata = {
+        "trace_id": str(response.trace_id),
+        "agent": response.agent.value,
+    }
+    reflection_intents: list[str] = []
+    if dialogue_trace:
+        analysis = dialogue_trace.get("analysis", {})
+        reflection_metadata["dialogue_trace"] = dialogue_trace
+        reflection_intents.extend(
+            item
+            for item in (
+                analysis.get("intent"),
+                analysis.get("cognitive_route"),
+                analysis.get("safety_class"),
+            )
+            if item
+        )
+        if dialogue_trace.get("tool_used"):
+            reflection_intents.append(f"tool:{dialogue_trace['tool_used']}")
+
     reflection = await cognitive_reflection_service.reflect_after_response(
         CognitiveReflectionRequest(
             prompt=request.message,
@@ -110,8 +132,10 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
             source="chat",
             user_id=request.user_id,
             session_id=session_id,
+            intents=reflection_intents,
+            used_context=bool(memory_context),
             memory_context=memory_context,
-            metadata={"trace_id": str(response.trace_id), "agent": response.agent.value},
+            metadata=reflection_metadata,
         )
     )
     await conversation_store.audit(

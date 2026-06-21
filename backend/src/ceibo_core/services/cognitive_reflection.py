@@ -4,6 +4,7 @@ import json
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from ceibo_core.models.schemas import (
     AutobiographicalMemoryRequest,
@@ -99,6 +100,8 @@ class CognitiveReflectionService:
 
     def _did_well(self, request: CognitiveReflectionRequest, response: str) -> list[str]:
         strengths: list[str] = []
+        trace = self._dialogue_trace(request)
+        analysis = trace.get("analysis", {}) if trace else {}
         if len(response) >= 160:
             strengths.append("Respondio con suficiente desarrollo inicial.")
         if "Siguientes pasos recomendados" in response or "siguiente" in response.lower():
@@ -107,11 +110,19 @@ class CognitiveReflectionService:
             strengths.append("Uso contexto recuperado para continuidad.")
         if any(intent in request.intents for intent in ("security", "devcore_modify", "training")):
             strengths.append("Detecto una intencion tecnica relevante.")
+        if analysis.get("cognitive_route"):
+            strengths.append(f"Orquesto la respuesta por ruta cognitiva {analysis['cognitive_route']}.")
+        if trace.get("tool_used"):
+            strengths.append(f"Uso herramienta controlada {trace['tool_used']} cuando correspondia.")
+        if analysis.get("safety_class") and analysis.get("safety_class") != "normal":
+            strengths.append("Ejecuto control de seguridad antes de responder.")
         return strengths or ["Genero una respuesta util para continuar la conversacion."]
 
     def _missing(self, request: CognitiveReflectionRequest, response: str) -> list[str]:
         missing: list[str] = []
         lowered = response.lower()
+        trace = self._dialogue_trace(request)
+        analysis = trace.get("analysis", {}) if trace else {}
         if not request.used_context and not request.memory_context:
             missing.append("No uso memoria o contexto previo.")
         if "test" not in lowered and any(intent in request.intents for intent in ("devcore_modify", "training")):
@@ -122,6 +133,12 @@ class CognitiveReflectionService:
             missing.append("Respuesta demasiado breve para aprender de ella.")
         if "robot" in request.prompt.lower() and "robot" not in lowered:
             missing.append("No conecto la respuesta con el objetivo robotico del proyecto.")
+        if analysis.get("ambiguity_score", 0) >= 0.65 and "?" not in response:
+            missing.append("La traza marco ambiguedad alta pero la respuesta no pidio precision.")
+        if analysis.get("irony_likelihood", 0) >= 0.55 and "ironia" not in lowered and "tono" not in lowered:
+            missing.append("La traza marco ironia posible pero la respuesta no reflejo tono.")
+        if analysis.get("cognitive_route") == "tool_query" and not trace.get("tool_used"):
+            missing.append("La traza esperaba herramienta pero no quedo herramienta registrada.")
         return missing
 
     def _should_learn(
@@ -133,6 +150,15 @@ class CognitiveReflectionService:
         learning: list[str] = []
         if missing:
             learning.extend(f"Mejorar: {item}" for item in missing[:3])
+        trace = self._dialogue_trace(request)
+        analysis = trace.get("analysis", {}) if trace else {}
+        route = analysis.get("cognitive_route")
+        if route == "human_dialogue":
+            learning.append("Aprender patrones de dialogo humano: tono, continuidad, ironia y pregunta suave.")
+        if trace.get("tool_used"):
+            learning.append(f"Reforzar en dataset cuando usar {trace['tool_used']} y cuando no usar herramienta.")
+        if analysis.get("memory_policy") == "candidate_autobiographical_memory":
+            learning.append("Convertir preferencias u objetivos del usuario en memoria autobiografica curada.")
         if "decision" in request.prompt.lower() or "objetivo" in request.prompt.lower():
             learning.append("Guardar decisiones y objetivos importantes como memoria autobiografica.")
         if any(intent in request.intents for intent in ("training", "devcore_modify")):
@@ -155,18 +181,33 @@ class CognitiveReflectionService:
         missing: list[str],
     ) -> AutobiographicalMemoryRequest | None:
         normalized = prompt.lower()
-        if "objetivo" in normalized or "decision" in normalized or "prefer" in normalized:
+        trace = self._dialogue_trace(request)
+        analysis = trace.get("analysis", {}) if trace else {}
+        memory_policy = analysis.get("memory_policy")
+        route = analysis.get("cognitive_route")
+        should_store_dialogue = memory_policy == "candidate_autobiographical_memory"
+        has_preference_marker = any(marker in normalized for marker in ("prefer", "prefiero", "me gusta que"))
+        if "objetivo" in normalized or "decision" in normalized or has_preference_marker or should_store_dialogue:
+            kind = "decision" if "decision" in normalized else "project_state"
+            if has_preference_marker:
+                kind = "preference"
             return AutobiographicalMemoryRequest(
-                kind="decision" if "decision" in normalized else "project_state",
+                kind=kind,
                 title=f"Reflexion desde {request.source}: {prompt[:72]}",
                 content=(
                     "CEIBO debe recordar esta interaccion como senal de continuidad. "
+                    f"Ruta cognitiva: {route or 'sin ruta'}. "
                     f"Respuesta resumida: {response[:220]}"
                 ),
                 importance=72 if missing else 80,
                 source="cognitive_reflection_loop",
-                tags=["sprint42", "reflection", request.source],
-                metadata={"missing": missing, "intents": request.intents},
+                tags=["sprint42", "dialogue-orchestrator-v1", "reflection", request.source],
+                metadata={
+                    "missing": missing,
+                    "intents": request.intents,
+                    "dialogue_route": route,
+                    "tool_used": trace.get("tool_used") if trace else None,
+                },
             )
         return None
 
@@ -182,7 +223,17 @@ class CognitiveReflectionService:
             tags.append("has-missing")
         if should_learn:
             tags.append("learning-signal")
+        trace = self._dialogue_trace(request)
+        analysis = trace.get("analysis", {}) if trace else {}
+        if analysis.get("cognitive_route"):
+            tags.append(f"route:{analysis['cognitive_route']}")
+        if trace.get("tool_used"):
+            tags.append(f"tool:{trace['tool_used']}")
         return tags
+
+    def _dialogue_trace(self, request: CognitiveReflectionRequest) -> dict[str, Any]:
+        trace = request.metadata.get("dialogue_trace")
+        return trace if isinstance(trace, dict) else {}
 
     def _append(self, record: CognitiveReflectionRecord) -> None:
         path = self.reflection_path()
