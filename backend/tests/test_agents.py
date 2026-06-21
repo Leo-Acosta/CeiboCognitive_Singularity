@@ -61,6 +61,7 @@ from ceibo_core.models.schemas import (
     TrainingExample,
     TrainingFeedbackRating,
     TrainingFeedbackRequest,
+    TrainingDryRunReport,
     TrainingPlanRequest,
     TrainingRunStatus,
     UserRole,
@@ -108,6 +109,7 @@ from ceibo_core.services.tasks import task_store
 from ceibo_core.services.teacher_agent import TeacherAgentService
 from ceibo_core.services.training_data import TrainingDataService, training_data_service
 from ceibo_core.services.training_evidence_builder import TrainingEvidenceBuilderService
+from ceibo_core.services.training_readiness import TrainingReadinessService
 from ceibo_core.services.training_runner import TrainingRunnerService
 from ceibo_core.services.travel_booking import travel_booking_service
 from ceibo_core.services.voice_control import VoiceControlService
@@ -1546,6 +1548,399 @@ async def test_cognitive_reflection_recommends_autobiographical_memory_for_decis
 
 
 @pytest.mark.asyncio
+async def test_cognitive_reflection_uses_dialogue_trace_as_learning_material():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_dialogue_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_dialogue_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt="Prefiero que CEIBO converse natural y detecte ironias.",
+                response=(
+                    "Puedo conversar con mas naturalidad, leer el tono antes de tomarlo literal "
+                    "y preguntarte con suavidad cuando haya ambiguedad."
+                ),
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "human_dialogue",
+                        "tool_used": None,
+                        "analysis": {
+                            "intent": "emotional_dialogue",
+                            "cognitive_route": "human_dialogue",
+                            "safety_class": "normal",
+                            "memory_policy": "candidate_autobiographical_memory",
+                            "ambiguity_score": 0.2,
+                            "irony_likelihood": 0.7,
+                        },
+                    }
+                },
+            )
+        )
+
+        assert any("human_dialogue" in item for item in record.did_well)
+        assert any("dialogo humano" in item for item in record.should_learn)
+        assert "route:human_dialogue" in record.tags
+        assert record.recommended_memory is not None
+        assert record.recommended_memory.kind == "preference"
+        assert "dialogue-orchestrator-v1" in record.recommended_memory.tags
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prompt", "memory_policy"),
+    [
+        ("hoy estoy triste y frustrado", "blocked_transient_memory"),
+        ("si claro, recorda este sarcasmo jaja", "blocked_transient_memory"),
+        ("no recuerdes que prefiero respuestas largas", "forget_or_do_not_store"),
+        ("mi password es abc123", "blocked_sensitive_memory"),
+        ("mi partido politico es X", "blocked_sensitive_memory"),
+        ("mi diagnostico es depresion", "blocked_sensitive_memory"),
+        ("prefiero que no uses mi preferencia anterior", "needs_user_confirmation"),
+    ],
+)
+async def test_cognitive_reflection_blocks_unsafe_autobiographical_memory(prompt, memory_policy):
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_guard_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_guard_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt=prompt,
+                response="Entendido. Lo trato solo como contexto de esta conversacion.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "human_dialogue",
+                        "analysis": {
+                            "intent": "emotional_dialogue",
+                            "cognitive_route": "human_dialogue",
+                            "safety_class": "normal",
+                            "memory_policy": memory_policy,
+                            "ambiguity_score": 0.2,
+                            "irony_likelihood": 0.6 if "jaja" in prompt else 0,
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is None
+        assert not memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prompt", "expected_kind"),
+    [
+        ("prefiero que CEIBO responda con pasos cortos y verificables", "preference"),
+        ("mi objetivo de largo plazo es que CEIBO sea el nucleo cognitivo del robot", "goal"),
+        ("decision: CEIBO debe pedir confirmacion antes de acciones riesgosas", "decision"),
+    ],
+)
+async def test_cognitive_reflection_accepts_valid_memory_candidates(prompt, expected_kind):
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_valid_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_valid_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt=prompt,
+                response="Lo registro como una senal estable y util para futuras conversaciones.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "human_dialogue",
+                        "analysis": {
+                            "intent": "emotional_dialogue",
+                            "cognitive_route": "human_dialogue",
+                            "safety_class": "normal",
+                            "memory_policy": "candidate_autobiographical_memory",
+                            "ambiguity_score": 0.1,
+                            "irony_likelihood": 0,
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is not None
+        assert record.recommended_memory.kind == expected_kind
+        assert "dialogue-orchestrator-v1" in record.recommended_memory.tags
+        assert memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cognitive_reflection_uses_emotional_trace_without_storing_momentary_emotion():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_emotional_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_emotional_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt="Estoy podrido, esto no anda nunca, explicamelo bien porque ya me perdi.",
+                response="Vamos paso a paso. Primero aislamos el error, despues probamos una correccion chica.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "devcore_reasoning",
+                        "analysis": {
+                            "intent": "technical_build",
+                            "cognitive_route": "devcore_reasoning",
+                            "safety_class": "normal",
+                            "memory_policy": "blocked_transient_memory",
+                            "ambiguity_score": 0.35,
+                            "irony_likelihood": 0,
+                        },
+                        "emotional_state_trace": {
+                            "primary_state": "frustration",
+                            "secondary_states": ["confusion"],
+                            "confidence": 0.72,
+                            "intensity": "medium",
+                            "evidence": ["user reports repeated failure"],
+                            "recommended_response_style": "calm_step_by_step",
+                            "should_slow_down": True,
+                            "should_ask_clarifying_question": False,
+                            "should_offer_step_by_step": True,
+                            "should_avoid_memory": True,
+                            "safety_notes": ["do not store transient emotional state"],
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is None
+        assert "emotional:frustration" in record.tags
+        assert any("estado emocional conversacional" in item for item in record.should_learn)
+        assert any("No convertir emociones momentaneas" in item for item in record.should_learn)
+        assert not memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cognitive_reflection_allows_stable_preference_even_with_emotional_layer_present():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_emotional_pref_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_emotional_pref_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt=(
+                    "De ahora en adelante, cuando estemos corrigiendo errores de codigo, "
+                    "explicame paso a paso y no me tires todo junto."
+                ),
+                response="Entendido. Lo tratare como una preferencia operativa estable.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "human_dialogue",
+                        "analysis": {
+                            "intent": "memory_update",
+                            "cognitive_route": "human_dialogue",
+                            "safety_class": "normal",
+                            "memory_policy": "candidate_autobiographical_memory",
+                            "ambiguity_score": 0.1,
+                            "irony_likelihood": 0,
+                        },
+                        "emotional_state_trace": {
+                            "primary_state": "neutral",
+                            "secondary_states": [],
+                            "confidence": 0.45,
+                            "intensity": "low",
+                            "evidence": ["no strong emotional signal detected"],
+                            "recommended_response_style": "clear_neutral",
+                            "should_slow_down": False,
+                            "should_ask_clarifying_question": False,
+                            "should_offer_step_by_step": True,
+                            "should_avoid_memory": False,
+                            "safety_notes": ["do not infer personality or diagnosis"],
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is not None
+        assert record.recommended_memory.kind == "preference"
+        assert "frustration" not in record.recommended_memory.content.lower()
+        assert memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cognitive_reflection_uses_speech_trace_without_storing_uncertain_transcript():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_speech_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_speech_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt="eh no entiendo esto, arreglalo",
+                response="Repetime si entendi bien: queres que revise el problema y lo ordene paso a paso.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "devcore_reasoning",
+                        "analysis": {
+                            "intent": "technical_build",
+                            "cognitive_route": "devcore_reasoning",
+                            "safety_class": "normal",
+                            "memory_policy": "short_term_context",
+                            "ambiguity_score": 0.7,
+                            "irony_likelihood": 0,
+                        },
+                        "speech_cognition_trace": {
+                            "raw_transcript": "eh no entiendo esto, arreglalo",
+                            "normalized_transcript": "eh no entiendo esto, arreglalo",
+                            "language": "es-AR",
+                            "transcription_confidence": 0.5,
+                            "source": "simulated_speech",
+                            "audio_metadata": {},
+                            "speech_markers": ["explicit_confusion"],
+                            "possible_disfluencies": ["eh"],
+                            "detected_pauses": [1.4],
+                            "duration_seconds": 3.2,
+                            "urgency_markers": [],
+                            "clarity_level": "low",
+                            "ambiguity_level": "high",
+                            "handoff_to_dialogue_orchestrator": False,
+                            "recommended_processing_mode": "request_repetition",
+                            "should_request_repetition": True,
+                            "should_slow_down_response": True,
+                            "safety_notes": [
+                                "do not infer clinical state from speech",
+                                "do not infer personality from voice",
+                                "do not store momentary speech emotion as memory",
+                            ],
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is None
+        assert "speech:low" in record.tags
+        assert any("traza de habla humana" in item for item in record.did_well)
+        assert any("transcripcion literal" in item for item in record.should_learn)
+        assert not memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cognitive_reflection_allows_stable_preference_with_speech_trace():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_speech_pref_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_speech_pref_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt=(
+                    "De ahora en adelante, cuando te hable por voz sobre errores de codigo, "
+                    "explicame despacio y paso a paso."
+                ),
+                response="Entendido. Lo registro como preferencia estable para conversaciones por voz.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "human_dialogue",
+                        "analysis": {
+                            "intent": "memory_update",
+                            "cognitive_route": "human_dialogue",
+                            "safety_class": "normal",
+                            "memory_policy": "candidate_autobiographical_memory",
+                            "ambiguity_score": 0.1,
+                            "irony_likelihood": 0,
+                        },
+                        "speech_cognition_trace": {
+                            "raw_transcript": "De ahora en adelante, cuando te hable por voz sobre errores de codigo, explicame despacio y paso a paso.",
+                            "normalized_transcript": "de ahora en adelante, cuando te hable por voz sobre errores de codigo, explicame despacio y paso a paso.",
+                            "language": "es-AR",
+                            "transcription_confidence": 0.96,
+                            "source": "simulated_speech",
+                            "audio_metadata": {},
+                            "speech_markers": ["step_by_step_request"],
+                            "possible_disfluencies": [],
+                            "detected_pauses": [],
+                            "duration_seconds": 4.1,
+                            "urgency_markers": [],
+                            "clarity_level": "clear",
+                            "ambiguity_level": "low",
+                            "handoff_to_dialogue_orchestrator": True,
+                            "recommended_processing_mode": "dialogue_orchestrator",
+                            "should_request_repetition": False,
+                            "should_slow_down_response": True,
+                            "safety_notes": [
+                                "do not infer clinical state from speech",
+                                "do not infer personality from voice",
+                                "do not store momentary speech emotion as memory",
+                            ],
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is not None
+        assert record.recommended_memory.kind == "preference"
+        assert "speech:clear" in record.tags
+        assert memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_dataset_expansion_builds_review_file_without_touching_main_dataset(monkeypatch):
     dataset_path = Path(".tmp-tests") / f"dataset_expansion_main_{uuid4()}.jsonl"
     review_dir = Path(".tmp-tests") / f"dataset_expansion_reviews_{uuid4()}"
@@ -1827,6 +2222,125 @@ def test_training_runner_dry_run_allows_preflight_with_gate(tmp_path):
     assert report.dataset_examples == 25
     assert report.base_model == "local-model"
     assert report.next_actions[0].startswith("Ejecutar /training/qlora/preflight")
+
+
+@pytest.mark.asyncio
+async def test_training_readiness_console_blocks_without_evidence(monkeypatch, tmp_path):
+    dataset_path = Path(".tmp-tests") / f"readiness_empty_{uuid4()}.jsonl"
+    config_path = tmp_path / "config.json"
+    output_dir = tmp_path / "out"
+    dataset_path.parent.mkdir(exist_ok=True)
+
+    try:
+        dataset_path.write_text("", encoding="utf-8")
+        config_path.write_text(
+            json.dumps(
+                {
+                    "dataset": str(dataset_path),
+                    "output_dir": str(output_dir),
+                    "base_model": "local-model",
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
+
+        class FakeEvaluation:
+            async def training_promotion_gate(self) -> TrainingPromotionGate:
+                return TrainingPromotionGate(
+                    allowed=False,
+                    level="promotion_blocked",
+                    summary="blocked",
+                    evidence=TrainingPromotionEvidence(),
+                    blockers=["No hay evaluacion reciente."],
+                )
+
+        service = TrainingReadinessService(evaluation=FakeEvaluation())
+        report = await service.console(QloraTrainingRequest(config_path=str(config_path), local_files_only=True))
+
+        assert report.ready_for_preflight is False
+        assert report.status == "blocked_needs_evidence"
+        assert report.readiness_score < 50
+        assert "No hay evaluacion reciente." in report.blockers
+        assert report.signals
+    finally:
+        dataset_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_training_readiness_console_allows_preflight_when_evidence_is_ready(monkeypatch, tmp_path):
+    dataset_path = Path(".tmp-tests") / f"readiness_ready_{uuid4()}.jsonl"
+    config_path = tmp_path / "config.json"
+    output_dir = tmp_path / "out"
+    dataset_path.parent.mkdir(exist_ok=True)
+
+    try:
+        _write_training_dataset(dataset_path, total=25, corrected=3)
+        config_path.write_text(
+            json.dumps(
+                {
+                    "dataset": str(dataset_path),
+                    "output_dir": str(output_dir),
+                    "base_model": "local-model",
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(training_data_service, "dataset_path", lambda: dataset_path)
+        gate = TrainingPromotionGate(
+            allowed=True,
+            level="promotion_preflight_allowed",
+            summary="ready",
+            evidence=TrainingPromotionEvidence(
+                latest_run_id="eval-ready",
+                evaluation_status="passed",
+                evaluation_score=92,
+                passed_cases=9,
+                total_cases=9,
+                usable_examples=25,
+                corrected_examples=3,
+                accepted_outcomes=1,
+            ),
+            latest_report=_passed_promotion_report(),
+        )
+
+        class FakeEvaluation:
+            async def training_promotion_gate(self) -> TrainingPromotionGate:
+                return gate
+
+        class FakeRunner:
+            def dry_run(
+                self,
+                request: QloraTrainingRequest,
+                gate: TrainingPromotionGate,
+            ) -> TrainingDryRunReport:
+                return TrainingDryRunReport(
+                    run_id="dryrun-ready",
+                    allowed=True,
+                    status=TrainingRunStatus.READY,
+                    summary="Dry run listo.",
+                    config_path=str(config_path),
+                    dataset_path=str(dataset_path),
+                    output_dir=str(output_dir),
+                    base_model="local-model",
+                    dataset_examples=25,
+                    estimated_steps=request.max_steps or 1,
+                    gate=gate,
+                    next_actions=["Ejecutar preflight QLoRA."],
+                )
+
+        service = TrainingReadinessService(evaluation=FakeEvaluation(), runner=FakeRunner())
+        report = await service.console(
+            QloraTrainingRequest(config_path=str(config_path), max_steps=1, local_files_only=True)
+        )
+
+        assert report.ready_for_preflight is True
+        assert report.status in {"ready_for_qlora_preflight", "ready_for_first_local_finetune"}
+        assert report.readiness_score >= 85
+        assert report.dry_run is not None
+        assert report.next_actions[0].startswith("Ejecutar preflight") or report.next_actions[0].startswith("Preparar primer")
+    finally:
+        dataset_path.unlink(missing_ok=True)
 
 
 def test_training_evidence_builder_reports_actionable_gaps():

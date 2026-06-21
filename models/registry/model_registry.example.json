@@ -1,0 +1,77 @@
+{
+  "registry_version": "v0.1",
+  "entries": [
+    {
+      "id": "ceibo-core-qwen7b-lora-v0.1",
+      "base_model": "Qwen/Qwen2.5-7B-Instruct",
+      "adapter_path": "models/adapters/ceibo-core-qwen7b-lora-v0.1",
+      "dataset_version": "v0.1",
+      "status": "planned",
+      "metrics": {}
+    },
+    {
+      "id": "ceibo-legal-qwen7b-lora-v0.1",
+      "base_model": "Qwen/Qwen2.5-7B-Instruct",
+      "adapter_path": "models/adapters/ceibo-legal-qwen7b-lora-v0.1",
+      "dataset_version": "v0.1",
+      "status": "planned",
+      "metrics": {}
+    },
+    {
+      "id": "ceibo-empleo-qwen7b-lora-v0.1",
+      "base_model": "Qwen/Qwen2.5-7B-Instruct",
+      "adapter_path": "models/adapters/ceibo-empleo-qwen7b-lora-v0.1",
+      "dataset_version": "v0.1",
+      "status": "planned",
+      "metrics": {}
+    },
+    {
+      "id": "ceibo-forense-qwen7b-lora-v0.1",
+      "base_model": "Qwen/Qwen2.5-7B-Instruct",
+      "adapter_path": "models/adapters/ceibo-forense-qwen7b-lora-v0.1",
+      "dataset_version": "v0.1",
+      "status": "planned",
+      "metrics": {}
+    },
+    {
+      "id": "ceibo-code-qwen-coder7b-lora-v0.1",
+      "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+      "adapter_path": "models/adapters/ceibo-code-qwen-coder7b-lora-v0.1",
+      "dataset_version": "v0.1",
+      "status": "planned",
+      "metrics": {}
+    },
+    {
+      "id": "ceibo-economics-qwen7b-lora-v0.1",
+      "base_model": "Qwen/Qwen2.5-7B-Instruct",
+      "adapter_path": "models/adapters/ceibo-economics-qwen7b-lora-v0.1",
+      "dataset_version": "v0.1",
+      "status": "planned",
+      "metrics": {}
+    },
+    {
+      "id": "ceibo-agents-qwen7b-lora-v0.1",
+      "base_model": "Qwen/Qwen2.5-7B-Instruct",
+      "adapter_path": "models/adapters/ceibo-agents-qwen7b-lora-v0.1",
+      "dataset_version": "v0.1",
+      "status": "planned",
+      "metrics": {}
+    },
+    {
+      "id": "ceibo-reverse-engineering-qwen7b-lora-v0.1",
+      "base_model": "Qwen/Qwen2.5-7B-Instruct",
+      "adapter_path": "models/adapters/ceibo-reverse-engineering-qwen7b-lora-v0.1",
+      "dataset_version": "v0.1",
+      "status": "planned",
+      "metrics": {}
+    },
+    {
+      "id": "ceibo-academic-writing-qwen7b-lora-v0.1",
+      "base_model": "Qwen/Qwen2.5-7B-Instruct",
+      "adapter_path": "models/adapters/ceibo-academic-writing-qwen7b-lora-v0.1",
+      "dataset_version": "v0.1",
+      "status": "planned",
+      "metrics": {}
+    }
+  ]
+}

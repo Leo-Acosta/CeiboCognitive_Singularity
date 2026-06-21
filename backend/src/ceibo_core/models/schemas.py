@@ -113,6 +113,106 @@ class ChatResponse(BaseModel):
     memory_context: list[str] = Field(default_factory=list)
     trace_id: UUID = Field(default_factory=uuid4)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    dialogue_trace: "DialogueOrchestrationTrace | None" = None
+    # Optional runtime metadata
+    provider: str | None = None
+    model: str | None = None
+    mode: str | None = None
+    local_only: bool = False
+    safety_checked: bool = False
+
+
+class DialogueSignal(BaseModel):
+    name: str
+    value: str | int | float | bool
+    confidence: float = Field(default=0.5, ge=0, le=1)
+
+
+class DialogueAnalysis(BaseModel):
+    intent: str
+    cognitive_route: str
+    speech_act: str
+    emotional_tone: str
+    response_style: str
+    safety_class: str
+    memory_policy: str
+    language: str = "es-AR"
+    ambiguity_score: float = Field(default=0, ge=0, le=1)
+    irony_likelihood: float = Field(default=0, ge=0, le=1)
+    urgency_score: float = Field(default=0, ge=0, le=1)
+    tool_candidate: str | None = None
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    route_reason: str
+    inferred_needs: list[str] = Field(default_factory=list)
+    signals: list[DialogueSignal] = Field(default_factory=list)
+
+
+class EmotionalStateTrace(BaseModel):
+    primary_state: str = "neutral"
+    secondary_states: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    intensity: str = "low"
+    evidence: list[str] = Field(default_factory=list)
+    recommended_response_style: str = "clear_neutral"
+    should_slow_down: bool = False
+    should_ask_clarifying_question: bool = False
+    should_offer_step_by_step: bool = False
+    should_avoid_memory: bool = True
+    safety_notes: list[str] = Field(default_factory=list)
+
+
+class SpeechCognitionTrace(BaseModel):
+    raw_transcript: str
+    normalized_transcript: str
+    language: str = "es-AR"
+    transcription_confidence: float = Field(default=1.0, ge=0, le=1)
+    source: str = "simulated"
+    audio_metadata: dict[str, Any] = Field(default_factory=dict)
+    speech_markers: list[str] = Field(default_factory=list)
+    possible_disfluencies: list[str] = Field(default_factory=list)
+    detected_pauses: list[float] = Field(default_factory=list)
+    duration_seconds: float | None = None
+    urgency_markers: list[str] = Field(default_factory=list)
+    clarity_level: str = "clear"
+    ambiguity_level: str = "low"
+    handoff_to_dialogue_orchestrator: bool = True
+    recommended_processing_mode: str = "dialogue_orchestrator"
+    should_request_repetition: bool = False
+    should_slow_down_response: bool = False
+    safety_notes: list[str] = Field(default_factory=list)
+
+
+class SpokenResponsePlan(BaseModel):
+    response_mode: str = "conversation"
+    spoken_style: str = "clear_natural"
+    pace: str = "normal"
+    structure: str = "short_paragraphs"
+    should_summarize_first: bool = False
+    should_use_short_sentences: bool = True
+    should_confirm_understanding: bool = False
+    should_offer_next_step: bool = True
+    max_sentence_length: str = "medium"
+    avoid_overload: bool = True
+    safety_notes: list[str] = Field(default_factory=list)
+
+
+class DialogueOrchestrationTrace(BaseModel):
+    analysis: DialogueAnalysis
+    speech_cognition_trace: SpeechCognitionTrace | None = None
+    emotional_state_trace: EmotionalStateTrace | None = None
+    spoken_response_plan: SpokenResponsePlan | None = None
+    selected_module: str
+    tool_used: str | None = None
+    provider: str | None = None
+    latency_ms: int = 0
+    fallback_used: bool = False
+    safety_checked: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class DialogueOrchestratorResponse(BaseModel):
+    response: str
+    trace: DialogueOrchestrationTrace
 
 
 class VoiceAuthorizationRequest(BaseModel):
@@ -1315,6 +1415,44 @@ class TrainingDryRunReport(BaseModel):
     blockers: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class TrainingReadinessSignal(BaseModel):
+    name: str
+    passed: bool
+    severity: str = "info"
+    current: int | float | str | None = None
+    target: int | float | str | None = None
+    detail: str
+
+
+class TrainingReadinessCoverage(BaseModel):
+    category: str
+    examples: int = 0
+    required_examples: int = 3
+    status: str = "missing"
+
+
+class TrainingReadinessConsole(BaseModel):
+    readiness_id: str = Field(default_factory=lambda: str(uuid4()))
+    status: str
+    summary: str
+    readiness_score: int = Field(ge=0, le=100)
+    ready_for_preflight: bool = False
+    ready_for_training: bool = False
+    dataset_path: str
+    config_path: str
+    output_dir: str | None = None
+    base_model: str | None = None
+    signals: list[TrainingReadinessSignal] = Field(default_factory=list)
+    coverage: list[TrainingReadinessCoverage] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    curation_review: LearningCurationReview | None = None
+    promotion_gate: TrainingPromotionGate | None = None
+    dry_run: TrainingDryRunReport | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

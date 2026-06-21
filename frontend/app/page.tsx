@@ -387,6 +387,44 @@ type TrainingDryRunReport = {
   created_at: string;
 };
 
+type TrainingReadinessSignal = {
+  name: string;
+  passed: boolean;
+  severity: string;
+  current: number | string | null;
+  target: number | string | null;
+  detail: string;
+};
+
+type TrainingReadinessCoverage = {
+  category: string;
+  examples: number;
+  required_examples: number;
+  status: string;
+};
+
+type TrainingReadinessConsole = {
+  readiness_id: string;
+  status: string;
+  summary: string;
+  readiness_score: number;
+  ready_for_preflight: boolean;
+  ready_for_training: boolean;
+  dataset_path: string;
+  config_path: string;
+  output_dir: string | null;
+  base_model: string | null;
+  signals: TrainingReadinessSignal[];
+  coverage: TrainingReadinessCoverage[];
+  blockers: string[];
+  warnings: string[];
+  next_actions: string[];
+  curation_review: LearningCurationReview | null;
+  promotion_gate: TrainingPromotionGate | null;
+  dry_run: TrainingDryRunReport | null;
+  created_at: string;
+};
+
 type TrainingEvidenceGap = {
   key: string;
   label: string;
@@ -853,6 +891,7 @@ export default function Home() {
   const [remediationOutcomeReview, setRemediationOutcomeReview] = useState<EvaluationRemediationOutcomeReview | null>(null);
   const [trainingPromotionGate, setTrainingPromotionGate] = useState<TrainingPromotionGate | null>(null);
   const [trainingDryRun, setTrainingDryRun] = useState<TrainingDryRunReport | null>(null);
+  const [trainingReadiness, setTrainingReadiness] = useState<TrainingReadinessConsole | null>(null);
   const [trainingEvidence, setTrainingEvidence] = useState<TrainingEvidenceBuilderReport | null>(null);
   const [datasetExpansion, setDatasetExpansion] = useState<DatasetExpansionReport | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState("Sin evaluacion reciente.");
@@ -868,6 +907,7 @@ export default function Home() {
   const [isApplyingRemediation, setIsApplyingRemediation] = useState(false);
   const [isReviewingPromotionGate, setIsReviewingPromotionGate] = useState(false);
   const [isRunningTrainingDryRun, setIsRunningTrainingDryRun] = useState(false);
+  const [isReviewingTrainingReadiness, setIsReviewingTrainingReadiness] = useState(false);
   const [isBuildingTrainingEvidence, setIsBuildingTrainingEvidence] = useState(false);
   const [isBuildingDatasetExpansion, setIsBuildingDatasetExpansion] = useState(false);
   const [isRenderingTemplate, setIsRenderingTemplate] = useState(false);
@@ -888,6 +928,34 @@ export default function Home() {
   const [voiceTranscript, setVoiceTranscript] = useState("");
   const [voiceMessage, setVoiceMessage] = useState("Deci: CEIBO autoriza mi voz.");
   const [lastVoiceDecision, setLastVoiceDecision] = useState<VoiceCommandResponse | null>(null);
+  const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(false);
+  const [voicePlaying, setVoicePlaying] = useState(false);
+
+  // LLM model config UI state
+  const [llmProvider, setLlmProvider] = useState<string>("ollama");
+  const [currentModel, setCurrentModel] = useState<string>("qwen3:8b");
+  const [ollamaUrl, setOllamaUrl] = useState<string>("http://127.0.0.1:11434");
+  const [ollamaSafe, setOllamaSafe] = useState<boolean>(true);
+  const [blockNonLocalOllama, setBlockNonLocalOllama] = useState<boolean>(true);
+  const [modelChangeMessage, setModelChangeMessage] = useState<string | null>(null);
+  const allowedModels = ["qwen3:8b", "qwen3:14b", "mistral", "llama3.1:8b", "gemma3"];
+
+  function speakAssistant(text: string) {
+    if (typeof window === "undefined") return;
+    if (!("speechSynthesis" in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "es-AR";
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.onstart = () => setVoicePlaying(true);
+      utterance.onend = () => setVoicePlaying(false);
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      // noop
+    }
+  }
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -900,6 +968,7 @@ export default function Home() {
 
   useEffect(() => {
     void refreshStatus();
+    void loadOllamaConfig();
     setVoiceSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
     void refreshVoiceStatus();
     void refreshHumanFeedbackStudio();
@@ -910,6 +979,7 @@ export default function Home() {
     void refreshEvaluationRemediation();
     void refreshRemediationOutcomes();
     void refreshTrainingPromotionGate();
+    void refreshTrainingReadiness();
     void refreshDatasetExpansion();
   }, []);
 
@@ -978,6 +1048,111 @@ export default function Home() {
       setIsRefreshingFeedbackStudio(false);
     }
   }
+
+  async function loadOllamaConfig() {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/security/ollama-status`);
+      if (!response.ok) throw new Error(`Status ${response.status}`);
+      const data = await response.json();
+      setLlmProvider(data.default_llm_provider ?? "ollama");
+      setCurrentModel(data.ollama_chat_model ?? "qwen3:8b");
+      setOllamaUrl(data.ollama_base_url ?? "http://127.0.0.1:11434");
+      setOllamaSafe(Boolean(data.safe));
+      setBlockNonLocalOllama(Boolean(data.block_non_local_ollama));
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  async function testOllamaConnection() {
+    setModelChangeMessage(null);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/security/ollama-status`);
+      if (!response.ok) throw new Error(`Status ${response.status}`);
+      const data = await response.json();
+      setOllamaSafe(Boolean(data.safe));
+      setModelChangeMessage(data.message ?? "OK");
+    } catch (err) {
+      setModelChangeMessage("Error al consultar Ollama");
+      setOllamaSafe(false);
+    }
+  }
+
+  async function saveModelChoice() {
+    setModelChangeMessage(null);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/security/set-model`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: currentModel }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        setModelChangeMessage(err.detail || "Error al guardar modelo");
+        return;
+      }
+      const data = await response.json();
+      setCurrentModel(data.ollama_chat_model ?? currentModel);
+      setModelChangeMessage("Modelo guardado correctamente.");
+    } catch (e) {
+      setModelChangeMessage("Error al guardar modelo");
+    }
+  }
+
+  async function saveOllamaUrl() {
+    setModelChangeMessage(null);
+    // client-side basic check
+    if (blockNonLocalOllama && !ollamaSafe) {
+      setModelChangeMessage(
+        "Host inseguro bloqueado por configuración (BLOCK_NON_LOCAL_OLLAMA=true). No se puede guardar."
+      );
+      return;
+    }
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/security/set-ollama-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ollama_base_url: ollamaUrl }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        setModelChangeMessage(err.detail || "Error al guardar URL");
+        return;
+      }
+      const data = await response.json();
+      setOllamaUrl(data.ollama_base_url ?? ollamaUrl);
+      setModelChangeMessage("URL de Ollama actualizada.");
+      // refresh status
+      await loadOllamaConfig();
+    } catch (e) {
+      setModelChangeMessage("Error al guardar URL");
+    }
+  }
+
+  function validateOllamaUrlLocal(url: string) {
+    try {
+      const u = new URL(url);
+      const host = (u.hostname || "").toLowerCase();
+      if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+      if (host === "0.0.0.0") return false;
+      // block private ranges
+      if (/^10\./.test(host)) return false;
+      if (/^192\.168\./.test(host)) return false;
+      if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)) return false;
+      // any other hostname with a dot is likely external
+      if (host.includes(".")) return false;
+      return false;
+    } catch (e) {
+      // if not a valid URL, treat as unsafe
+      return false;
+    }
+  }
+
+  // validate when ollamaUrl or block flag changes
+  useEffect(() => {
+    const safe = validateOllamaUrlLocal(ollamaUrl);
+    setOllamaSafe(safe);
+  }, [ollamaUrl, blockNonLocalOllama]);
 
   async function refreshAutobiographicalMemory(bootstrapIfEmpty = false) {
     setIsRefreshingAutobiographicalMemory(true);
@@ -1138,6 +1313,41 @@ export default function Home() {
       setTrainingPromotionGate(null);
     } finally {
       setIsReviewingPromotionGate(false);
+    }
+  }
+
+  async function refreshTrainingReadiness() {
+    setIsReviewingTrainingReadiness(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/engine/training/readiness`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_steps: 1, local_files_only: true }),
+      });
+      if (!response.ok) {
+        throw new Error(`Training readiness responded ${response.status}`);
+      }
+      const data = (await response.json()) as TrainingReadinessConsole;
+      setTrainingReadiness(data);
+      if (data.curation_review) {
+        setLearningCuration(data.curation_review);
+      }
+      if (data.promotion_gate) {
+        setTrainingPromotionGate(data.promotion_gate);
+      }
+      if (data.dry_run) {
+        setTrainingDryRun(data.dry_run);
+      }
+      addHistory({
+        kind: "learning",
+        title: "training readiness",
+        detail: `${data.status} - ${data.readiness_score}/100`,
+      });
+    } catch {
+      setTrainingReadiness(null);
+      setConnection("offline");
+    } finally {
+      setIsReviewingTrainingReadiness(false);
     }
   }
 
@@ -1813,6 +2023,13 @@ export default function Home() {
         ...current,
         { id: newId(), role: "assistant", content: data.response },
       ]);
+      if (voiceOutputEnabled) {
+        try {
+          speakAssistant(data.response);
+        } catch (e) {
+          // ignore speak errors
+        }
+      }
       setLastExchange({
         instruction: content,
         assistantResponse: data.response,
@@ -1878,6 +2095,89 @@ export default function Home() {
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Modelo local de CEIBO
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">Configuracion LLM</h2>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                  <p className="text-xs text-slate-500">Provider actual</p>
+                  <p className="font-semibold">{llmProvider}</p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2">
+                  <label className="text-xs text-slate-500">Modelo actual</label>
+                  <select
+                    value={currentModel}
+                    onChange={(e) => setCurrentModel(e.target.value)}
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    {allowedModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void saveModelChoice()}
+                      className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white"
+                      disabled={blockNonLocalOllama && !ollamaSafe}
+                    >
+                      Guardar modelo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void testOllamaConnection()}
+                      className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                      disabled={blockNonLocalOllama && !ollamaSafe}
+                    >
+                      Probar conexion
+                    </button>
+                  </div>
+                  {modelChangeMessage ? (
+                    <p className="text-xs text-slate-600">{modelChangeMessage}</p>
+                  ) : null}
+                </div>
+
+                <div className="grid grid-cols-1 gap-2">
+                  <label className="text-xs text-slate-500">URL Ollama</label>
+                  <input
+                    value={ollamaUrl}
+                    onChange={(e) => setOllamaUrl(e.target.value)}
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void saveOllamaUrl()}
+                      className="inline-flex items-center gap-2 rounded-md bg-sky-700 px-3 py-2 text-sm font-medium text-white"
+                      disabled={blockNonLocalOllama && !ollamaSafe}
+                    >
+                      Guardar URL
+                    </button>
+                    <div className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm">
+                      {ollamaSafe ? (
+                        <span className="text-emerald-700">Ollama parece local y seguro</span>
+                      ) : (
+                        <span className="text-red-700">Advertencia: Ollama no parece localhost</span>
+                      )}
+                    </div>
+                  </div>
+                  {blockNonLocalOllama && !ollamaSafe ? (
+                    <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                      Por seguridad, CEIBO solo permite Ollama en localhost/127.0.0.1. No expongas el puerto 11434 a Internet.
+                    </p>
+                  ) : null}
+                  <p className="text-xs text-slate-500">CEIBO no está atado a un modelo. Qwen es solo el modelo inicial recomendado.</p>
+                </div>
+              </div>
                 CEIBO CORE
               </p>
               <h1 className="mt-1 text-2xl font-semibold tracking-normal text-slate-950">
@@ -1999,6 +2299,14 @@ export default function Home() {
                   onSubmit={handleSubmit}
                   className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm"
                 >
+                  <button
+                    type="button"
+                    onClick={() => setVoiceOutputEnabled((v) => !v)}
+                    className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-2 text-sm"
+                    title="Activar/Desactivar voz de CEIBO"
+                  >
+                    {voiceOutputEnabled ? "🔊 Voz ON" : "🔈 Voz OFF"}
+                  </button>
                   <textarea
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
@@ -2163,6 +2471,142 @@ export default function Home() {
                   {voiceStatus?.safety_notes[0] ??
                     "Voice v1 autoriza por frase hablada; las ordenes siguen pasando por seguridad."}
                 </p>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Sprint 46
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    Training Readiness
+                  </h2>
+                </div>
+                <ShieldCheck
+                  className={`h-5 w-5 ${
+                    trainingReadiness?.ready_for_preflight ? "text-emerald-600" : "text-amber-600"
+                  }`}
+                />
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {trainingReadiness ? (
+                  <>
+                    <div
+                      className={`rounded-md border px-3 py-2 text-sm ${
+                        trainingReadiness.ready_for_preflight
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-amber-200 bg-amber-50 text-amber-800"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-semibold">{trainingReadiness.status}</p>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold">
+                          {trainingReadiness.readiness_score}/100
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs leading-5">{trainingReadiness.summary}</p>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {trainingReadiness.curation_review?.readiness.usable_examples ?? 0}
+                        </p>
+                        <p className="text-slate-500">curados</p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {trainingReadiness.promotion_gate?.evidence.evaluation_score ?? "--"}
+                        </p>
+                        <p className="text-slate-500">eval</p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                        <p className="font-semibold text-slate-900">
+                          {trainingReadiness.dry_run?.status ?? "missing"}
+                        </p>
+                        <p className="text-slate-500">dry run</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {trainingReadiness.signals.slice(0, 4).map((signal) => (
+                        <div
+                          key={signal.name}
+                          className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-slate-800">{signal.name}</p>
+                            <p className="truncate text-slate-500">{signal.detail}</p>
+                          </div>
+                          <span
+                            className={`rounded-full px-2 py-0.5 font-semibold ${
+                              signal.passed
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-amber-100 text-amber-700"
+                            }`}
+                          >
+                            {signal.passed ? "ok" : "falta"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      {trainingReadiness.coverage.slice(0, 6).map((item) => (
+                        <div
+                          key={item.category}
+                          className={`rounded-md border px-2 py-2 text-center ${
+                            item.status === "covered"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                              : item.status === "thin"
+                                ? "border-sky-200 bg-sky-50 text-sky-800"
+                                : "border-slate-200 bg-slate-50 text-slate-500"
+                          }`}
+                        >
+                          <p className="truncate font-semibold">{item.category}</p>
+                          <p className="mt-1">
+                            {item.examples}/{item.required_examples}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {trainingReadiness.blockers[0] ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                        {trainingReadiness.blockers[0]}
+                      </p>
+                    ) : trainingReadiness.next_actions[0] ? (
+                      <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800">
+                        {trainingReadiness.next_actions[0]}
+                      </p>
+                    ) : null}
+
+                    <p className="truncate rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                      Dataset: {trainingReadiness.dataset_path}
+                    </p>
+                  </>
+                ) : (
+                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
+                    Consolida dataset, evaluation gate, promotion gate y dry-run para decidir si CEIBO puede pasar a preflight QLoRA.
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => void refreshTrainingReadiness()}
+                  disabled={isReviewingTrainingReadiness}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {isReviewingTrainingReadiness ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="h-4 w-4" />
+                  )}
+                  Revisar readiness
+                </button>
               </div>
             </div>
 

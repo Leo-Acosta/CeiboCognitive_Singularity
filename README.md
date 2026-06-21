@@ -141,6 +141,14 @@ API:
 Evaluation Loop v1 persists the latest report in `training/evaluations/latest_report.json`.
 The training gate reads that report after API restarts and stays blocked when the suite is missing,
 needs attention, or the curated dataset is not ready.
+
+Dialogue Orchestrator v1 is documented in `docs/dialogue-orchestrator-v1.md`. It adds a fast
+chat front-door that classifies intent, tone, risk, ambiguity, irony and tool routing, then feeds
+`dialogue_trace` into autobiographical memory and the Cognitive Reflection Loop.
+The QA and memory guardrails for that layer are documented in
+`docs/dialogue-orchestrator-qa-guardrails.md`.
+Emotional State Layer v1 is documented in `docs/emotional-state-layer-v1.md`.
+Human Speech Cognition Layer v1 is documented in `docs/human-speech-cognition-layer-v1.md`.
 - `POST /api/v1/memory/knowledge`
 - `GET /api/v1/memory/knowledge/search`
 - `GET /api/v1/tasks`
@@ -157,6 +165,49 @@ levantar la API en un puerto alto:
 cd backend
 python -m uvicorn ceibo_core.main:app --app-dir src --host 127.0.0.1 --port 8765
 ```
+
+## CEIBO Local AI / Ollama
+
+CEIBO está diseñado para correr modelos localmente usando Ollama como runtime inicial. Recomendado flujo rápido:
+
+1. Instalar Ollama en tu máquina.
+2. Descargar Qwen3 8B (ejemplo):
+
+```bash
+ollama pull qwen3:8b
+```
+
+3. Ejecutar el modelo:
+
+```bash
+ollama run qwen3:8b
+```
+
+4. Verificar la API local de Ollama:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:11434/api/tags
+# o
+curl.exe http://127.0.0.1:11434/api/tags
+```
+
+5. Configurar `.env` (copiar `.env.example`) y ajustar:
+
+```
+DEFAULT_LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_CHAT_MODEL=qwen3:8b
+LOCAL_ONLY_MODE=true
+ALLOW_EXTERNAL_LLM=false
+```
+
+Seguridad:
+
+- No exponer Ollama a Internet.
+- No usar 0.0.0.0 para `OLLAMA_BASE_URL`.
+- No abrir el puerto 11434 en el firewall salvo un laboratorio controlado.
+- CEIBO valida que Ollama esté en localhost por defecto.
+
 
 Curar dataset antes de fine-tuning:
 
@@ -194,3 +245,109 @@ helm upgrade --install ceibo-core charts/ceibo-core -n ceibo-core --create-names
 - [Kubernetes](docs/kubernetes.md)
 - [Seguridad](docs/security.md)
 - [Roadmap](docs/roadmap.md)
+
+## Commercial Vision
+
+Ceibo AI is an Argentine AI platform designed to turn open models, local data,
+professional workflows, human-like conversation, RAG, agents, and fine-tuning
+into specialized assistants for real work. It focuses on employment, law,
+cybersecurity, digital forensics, programming, economics, finance, and
+autonomous agents. Its central brain, Ceibo Core, is a conversational,
+cognitive and agentic system capable of natural human dialogue while operating
+specialized verticals.
+
+## Vision comercial
+
+Ceibo AI es una plataforma argentina de inteligencia artificial aplicada que combina modelos abiertos, datos locales, interaccion humana natural, agentes especializados, RAG documental, fine-tuning y herramientas profesionales para asistir trabajo real en empleo, derecho, ciberseguridad, economia, programacion y automatizacion.
+
+Ceibo AI: la inteligencia argentina que trabaja con vos.
+
+Ceibo Core es el cerebro conversacional, cognitivo y agente de Ceibo AI, capaz de dialogar con humanos de forma natural y ademas operar verticales especializadas.
+
+CeiboCognitive_Singularity es el repositorio tecnico que contiene el backend,
+frontend, training, infraestructura y documentacion de esta plataforma. No
+afirma ser una AGI ni una singularidad real: define una plataforma progresiva,
+medible, auditable, conversacional, agente y entrenable.
+
+## Ceibo Core
+
+Ceibo Core conserva la Human Interaction Layer: conversacion natural, dialogo
+sostenido, tono claro, empatico y profesional, adaptacion al usuario, memoria
+contextual cuando este habilitada, futura voz, texto/audio, continuidad
+conversacional y trazabilidad. Core clasifica intencion, elige vertical, llama
+agentes, usa RAG, aplica guardrails y devuelve una respuesta humana, clara y
+util.
+
+## Productos y verticales
+
+- Ceibo AI: marca comercial, SaaS local-first y cloud-ready.
+- Ceibo Core: cerebro conversacional, cognitivo y agente.
+- Ceibo Empleo: CV, entrevistas, ATS y postulaciones.
+- Ceibo Legal: asistencia juridica argentina con revision humana.
+- Ceibo Forense: ciberseguridad defensiva y evidencia digital autorizada.
+- Ceibo Code: programacion, debugging, DevOps y revision.
+- Ceibo Economics/Finance: economia, finanzas educativas, escenarios y riesgo.
+- Ceibo Agents: agentes autonomos supervisados.
+
+## Local-first, cloud-ready y entrenable
+
+Local-first significa que Ceibo AI puede operar en entornos locales con Ollama,
+datos propios y controles de privacidad. Cloud-ready significa que la misma
+arquitectura queda preparada para despliegues con Kubernetes, vLLM, Qdrant,
+PostgreSQL, Redis y observabilidad. Entrenable significa que datasets curados,
+LoRA/QLoRA, evaluaciones, registros de modelos y monitoreo permiten mejorar
+verticales de forma versionada.
+
+## RAG y fine-tuning
+
+RAG recupera documentos por vertical, cita fuentes y evita responder sin base
+documental cuando el riesgo lo exige. QLoRA/LoRA permite entrenar adaptadores
+especializados sin reentrenar un modelo fundacional completo.
+
+## Modelos base
+
+Qwen 3B sirve para smoke tests. Qwen 7B sirve como base general inicial. Qwen
+Coder 7B sirve para Ceibo Code. Mistral queda como alternativa. Ollama sirve
+para ejecucion local/demo. QLoRA requiere modelos compatibles con
+HuggingFace/Transformers y no directamente GGUF/Ollama. La capa conversacional
+de Ceibo Core debe poder operar con modelos locales o cloud segun
+configuracion.
+
+## Futuro entrenamiento
+
+Los proximos pasos documentados son construir datasets reales de Ceibo Core
+Conversational v0.1, Ceibo Legal Laboral v0.1 y Ceibo Empleo v0.1; activar
+Qwen 3B smoke test y Qwen 7B QLoRA; crear adaptadores
+ceibo-core-conversational-qwen7b-lora-v0.1 y ceibo-legal-qwen7b-lora-v0.1;
+comparar modelos base contra adaptadores; crear RAG legal y economico
+argentino; crear MVP comercial, landing page, beta cerrada, politica de
+privacidad, terminos de uso e infraestructura Ollama local con futura
+compatibilidad vLLM.
+
+## Ceibo Ingenieria Inversa
+
+Ceibo AI incorpora Ceibo Ingenieria Inversa / Ceibo Reverse Engineering como
+vertical especializada para analizar, comprender, documentar, auditar y
+reconstruir legalmente tecnologias propias, open-source o autorizadas. Opera
+con Ceibo Core como cerebro conversacional, usa RAG
+`ceibo_reverse_engineering`, adaptador planificado
+`ceibo_reverse_engineering_qwen7b_lora` y guardrails de autorizacion,
+propiedad intelectual, no evasion, no malware y clean-room.
+
+## Dataset Pack v0.1
+
+El primer paquete entrenable se concentra en Ceibo Core Conversational, Ceibo
+Legal Laboral y Ceibo Ingenieria Inversa. Su objetivo es preparar Qwen 3B
+smoke test, evaluacion, curacion y futuros adaptadores Qwen 7B LoRA/QLoRA.
+
+Readiness del smoke test:
+
+```powershell
+python training/scripts/preflight_qwen3b_smoke.py
+python training/scripts/dry_run_qwen3b_dataset.py --limit 5
+python training/scripts/create_baseline_prompts.py
+```
+
+## Ceibo Tesis / Academic Writing
+
+Ceibo AI incorpora Ceibo Tesis como vertical para investigacion, tesis, tesinas, trabajos finales, papers y redaccion academica asistida, con integridad academica, fuentes verificadas y autoria humana.

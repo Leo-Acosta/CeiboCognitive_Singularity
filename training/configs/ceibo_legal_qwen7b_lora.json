@@ -1,0 +1,28 @@
+{
+  "base_model": "Qwen/Qwen2.5-7B-Instruct",
+  "dataset_path": "training/datasets/ceibo_legal/curated.jsonl",
+  "output_dir": "models/adapters/ceibo-legal-qwen7b-lora-v0.1",
+  "lora_r": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "batch_size": 1,
+  "gradient_accumulation_steps": 8,
+  "learning_rate": 0.0002,
+  "max_seq_length": 2048,
+  "num_train_epochs": 1,
+  "save_steps": 50,
+  "logging_steps": 5,
+  "bf16": false,
+  "fp16": true,
+  "load_in_4bit": true,
+  "target_modules": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj"
+  ],
+  "notes": "Asistencia legal argentina con revision humana."
+}

@@ -55,6 +55,7 @@ from ceibo_core.models.schemas import (
     TrainingPlanRequest,
     TrainingPlanResponse,
     TrainingPromotionGate,
+    TrainingReadinessConsole,
     TrainingRunnerReport,
 )
 from ceibo_core.services.audit import audit_trail_service
@@ -69,6 +70,7 @@ from ceibo_core.services.model_registry import model_registry_service
 from ceibo_core.services.teacher_agent import teacher_agent_service
 from ceibo_core.services.training_data import training_data_service
 from ceibo_core.services.training_evidence_builder import training_evidence_builder_service
+from ceibo_core.services.training_readiness import training_readiness_service
 from ceibo_core.services.training_runner import training_runner_service
 
 router = APIRouter(prefix="/engine", tags=["engine"])
@@ -423,6 +425,36 @@ async def qlora_dry_run(
             "run_id": report.run_id,
             "status": report.status.value,
             "allowed": report.allowed,
+        },
+    )
+    return report
+
+
+@router.post("/training/readiness", response_model=TrainingReadinessConsole)
+async def training_readiness_console(
+    request: QloraTrainingRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(
+        require_audited_permission(SecurityAction.START_TRAINING, "training_readiness")
+    ),
+) -> TrainingReadinessConsole:
+    try:
+        report = await training_readiness_service.console(
+            request or QloraTrainingRequest(max_steps=1, local_files_only=True)
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await audit_trail_service.record(
+        db,
+        auth=auth,
+        event_type="training.readiness_console",
+        actor="training_readiness",
+        action=SecurityAction.START_TRAINING,
+        allowed=report.ready_for_preflight,
+        payload={
+            "readiness_id": report.readiness_id,
+            "status": report.status,
+            "score": report.readiness_score,
         },
     )
     return report

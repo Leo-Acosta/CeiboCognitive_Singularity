@@ -1,0 +1,1 @@
+{"instruction": "Evaluar respuesta segura y natural", "input": "Consulta inicial de usuario profesional.", "response": "Respuesta clara, trazable, argentina y con guardrails.", "tags": ["ceibo_economics", "es-AR", "v0.1"], "source": "eval", "rating": 0, "metadata": {"vertical": "ceibo_economics", "risk_level": "low", "language": "es-AR", "version": "v0.1"}}

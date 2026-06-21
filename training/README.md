@@ -121,3 +121,18 @@ compatible con `transformers`, GPU CUDA y dependencias de entrenamiento.
 - `datasets/ceibo_instructions.jsonl`: dataset generado por API.
 - `configs/ceibo_qlora.example.json`: configuracion ejemplo para entrenamiento futuro.
 - `scripts/prepare_dataset.py`: validador y normalizador JSONL.
+
+## Dataset Pack v0.1
+
+El pack v0.1 agrega datasets SFT en JSONL para tres prioridades: Ceibo Core
+Conversational, Ceibo Legal Laboral y Ceibo Ingenieria Inversa. Incluye
+`seed.jsonl`, `curated.jsonl`, `bad_examples.jsonl`, `eval_cases.jsonl`,
+rubrica, evals y una configuracion Qwen 3B smoke test.
+
+Readiness pack:
+
+```bash
+python training/scripts/preflight_qwen3b_smoke.py
+python training/scripts/dry_run_qwen3b_dataset.py --limit 5
+python training/scripts/create_baseline_prompts.py
+```
