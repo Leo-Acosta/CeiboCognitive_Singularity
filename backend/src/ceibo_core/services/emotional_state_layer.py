@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from ceibo_core.models.schemas import DialogueAnalysis, EmotionalStateTrace
+from ceibo_core.models.schemas import DialogueAnalysis, EmotionalStateTrace, SpeechCognitionTrace
 
 
 @dataclass(frozen=True)
@@ -36,11 +36,13 @@ class EmotionalStateLayerService:
         user_message: str,
         analysis: DialogueAnalysis,
         conversation_context: list[str] | None = None,
+        speech_cognition_trace: SpeechCognitionTrace | dict | None = None,
     ) -> EmotionalStateTrace:
         normalized = self._normalize(user_message)
-        signals = self._signals(normalized, analysis)
+        speech_trace = self._coerce_speech_trace(speech_cognition_trace)
+        signals = self._signals(normalized, analysis, speech_trace)
         if not signals:
-            return self._neutral_trace(analysis)
+            return self._neutral_trace(analysis, speech_trace)
 
         scores: dict[str, float] = {}
         evidence_by_state: dict[str, list[str]] = {}
@@ -63,9 +65,15 @@ class EmotionalStateLayerService:
         intensity = self._intensity(scores[primary_state], analysis)
         evidence = self._compact_evidence(evidence_by_state, primary_state, secondary_states)
         style = self._style(primary_state, secondary_states, analysis)
-        should_ask = analysis.ambiguity_score >= 0.55 or "confusion" in {primary_state, *secondary_states}
+        should_ask = (
+            analysis.ambiguity_score >= 0.55
+            or "confusion" in {primary_state, *secondary_states}
+            or bool(speech_trace and speech_trace.should_request_repetition)
+        )
         should_step = primary_state in {"frustration", "confusion", "urgency", "doubt"} or analysis.intent == "technical_build"
-        should_slow = primary_state in {"frustration", "confusion", "anger", "fatigue", "doubt"}
+        should_slow = primary_state in {"frustration", "confusion", "anger", "fatigue", "doubt"} or bool(
+            speech_trace and speech_trace.should_slow_down_response
+        )
 
         return EmotionalStateTrace(
             primary_state=primary_state,
@@ -81,12 +89,28 @@ class EmotionalStateLayerService:
             safety_notes=self._safety_notes(primary_state, secondary_states, analysis),
         )
 
-    def _signals(self, normalized: str, analysis: DialogueAnalysis) -> list[EmotionalSignal]:
+    def _signals(
+        self,
+        normalized: str,
+        analysis: DialogueAnalysis,
+        speech_trace: SpeechCognitionTrace | None = None,
+    ) -> list[EmotionalSignal]:
         signals: list[EmotionalSignal] = []
         self._add_if_contains(
             signals,
             normalized,
-            ("no anda", "no funciona", "nunca anda", "podrido", "harto", "frustrado", "trabado"),
+            (
+                "no anda",
+                "no funciona",
+                "nunca anda",
+                "podrido",
+                "harto",
+                "frustrado",
+                "trabado",
+                "probe",
+                "probÃ©",
+                "tres veces",
+            ),
             "frustration",
             0.7,
             "user reports repeated failure or blockage",
@@ -172,9 +196,21 @@ class EmotionalStateLayerService:
             signals.append(EmotionalSignal("frustration", 0.35, "dialogue tone suggests frustration or concern"))
         if analysis.emotional_tone == "agresivo":
             signals.append(EmotionalSignal("anger", 0.45, "dialogue tone suggests aggressive wording"))
+        if speech_trace:
+            markers = set(speech_trace.speech_markers)
+            if "explicit_confusion" in markers or speech_trace.clarity_level in {"low", "medium"}:
+                signals.append(EmotionalSignal("confusion", 0.38, "speech trace suggests low clarity or confusion"))
+            if "explicit_frustration" in markers:
+                signals.append(EmotionalSignal("frustration", 0.45, "speech trace includes explicit frustration marker"))
+            if "urgency" in markers:
+                signals.append(EmotionalSignal("urgency", 0.35, "speech trace includes urgency marker"))
         return signals
 
-    def _neutral_trace(self, analysis: DialogueAnalysis) -> EmotionalStateTrace:
+    def _neutral_trace(
+        self,
+        analysis: DialogueAnalysis,
+        speech_trace: SpeechCognitionTrace | None = None,
+    ) -> EmotionalStateTrace:
         should_ask = analysis.ambiguity_score >= 0.55
         return EmotionalStateTrace(
             primary_state="neutral",
@@ -183,12 +219,21 @@ class EmotionalStateLayerService:
             intensity="low",
             evidence=["no strong emotional signal detected"],
             recommended_response_style="clear_neutral",
-            should_slow_down=False,
-            should_ask_clarifying_question=should_ask,
+            should_slow_down=bool(speech_trace and speech_trace.should_slow_down_response),
+            should_ask_clarifying_question=should_ask or bool(speech_trace and speech_trace.should_request_repetition),
             should_offer_step_by_step=analysis.intent == "technical_build",
             should_avoid_memory=analysis.memory_policy != "candidate_autobiographical_memory",
             safety_notes=["weak signal only", "do not infer personality or diagnosis"],
         )
+
+    def _coerce_speech_trace(self, value: SpeechCognitionTrace | dict | None) -> SpeechCognitionTrace | None:
+        if value is None:
+            return None
+        if isinstance(value, SpeechCognitionTrace):
+            return value
+        if isinstance(value, dict):
+            return SpeechCognitionTrace.model_validate(value)
+        return None
 
     def _confidence(self, primary_score: float, analysis: DialogueAnalysis) -> float:
         confidence = 0.35 + primary_score * 0.45

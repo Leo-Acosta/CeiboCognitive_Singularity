@@ -161,9 +161,46 @@ class EmotionalStateTrace(BaseModel):
     safety_notes: list[str] = Field(default_factory=list)
 
 
+class SpeechCognitionTrace(BaseModel):
+    raw_transcript: str
+    normalized_transcript: str
+    language: str = "es-AR"
+    transcription_confidence: float = Field(default=1.0, ge=0, le=1)
+    source: str = "simulated"
+    audio_metadata: dict[str, Any] = Field(default_factory=dict)
+    speech_markers: list[str] = Field(default_factory=list)
+    possible_disfluencies: list[str] = Field(default_factory=list)
+    detected_pauses: list[float] = Field(default_factory=list)
+    duration_seconds: float | None = None
+    urgency_markers: list[str] = Field(default_factory=list)
+    clarity_level: str = "clear"
+    ambiguity_level: str = "low"
+    handoff_to_dialogue_orchestrator: bool = True
+    recommended_processing_mode: str = "dialogue_orchestrator"
+    should_request_repetition: bool = False
+    should_slow_down_response: bool = False
+    safety_notes: list[str] = Field(default_factory=list)
+
+
+class SpokenResponsePlan(BaseModel):
+    response_mode: str = "conversation"
+    spoken_style: str = "clear_natural"
+    pace: str = "normal"
+    structure: str = "short_paragraphs"
+    should_summarize_first: bool = False
+    should_use_short_sentences: bool = True
+    should_confirm_understanding: bool = False
+    should_offer_next_step: bool = True
+    max_sentence_length: str = "medium"
+    avoid_overload: bool = True
+    safety_notes: list[str] = Field(default_factory=list)
+
+
 class DialogueOrchestrationTrace(BaseModel):
     analysis: DialogueAnalysis
+    speech_cognition_trace: SpeechCognitionTrace | None = None
     emotional_state_trace: EmotionalStateTrace | None = None
+    spoken_response_plan: SpokenResponsePlan | None = None
     selected_module: str
     tool_used: str | None = None
     provider: str | None = None

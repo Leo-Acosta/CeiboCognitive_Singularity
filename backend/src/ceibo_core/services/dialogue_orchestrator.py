@@ -12,12 +12,14 @@ from ceibo_core.models.schemas import (
     DialogueOrchestratorResponse,
     DialogueSignal,
     EmotionalStateTrace,
+    SpeechCognitionTrace,
 )
 from ceibo_core.services.chat_tools import ChatToolResult, chat_tool_router
 from ceibo_core.services.dialogue_memory import dialogue_memory_service
 from ceibo_core.services.emotional_state_layer import emotional_state_layer_service
 from ceibo_core.services.llm_gateway import llm_gateway
 from ceibo_core.services.persona import build_persona_prompt
+from ceibo_core.services.spoken_response_planner import spoken_response_planner_service
 from ceibo_core.security.safety_supervisor import safety_supervisor
 
 
@@ -90,14 +92,17 @@ class DialogueOrchestratorService:
         conversation_history: list[dict] | None = None,
         memory_context: str | None = None,
         mode: str = "human_persona",
+        speech_cognition_trace: SpeechCognitionTrace | dict | None = None,
     ) -> DialogueOrchestratorResponse:
         started = perf_counter()
         safety_class = safety_supervisor.classify(user_message)
         analysis = self.analyze(user_message, safety_class=safety_class)
+        speech_trace = self._coerce_speech_trace(speech_cognition_trace)
         emotional_trace = emotional_state_layer_service.assess(
             user_message=user_message,
             analysis=analysis,
             conversation_context=self._history_to_context(conversation_history, memory_context or ""),
+            speech_cognition_trace=speech_trace,
         )
 
         if safety_class == "blocked_abuse":
@@ -107,6 +112,7 @@ class DialogueOrchestratorService:
                     "Si queres, puedo llevarlo a un analisis defensivo, educativo o de laboratorio controlado."
                 ),
                 analysis=analysis,
+                speech_cognition_trace=speech_trace,
                 emotional_state_trace=emotional_trace,
                 selected_module="safety_supervisor",
                 started=started,
@@ -118,6 +124,7 @@ class DialogueOrchestratorService:
                     "Puedo analizarlo primero en modo seguro, sin ejecutar nada, y despues pedir confirmacion exacta."
                 ),
                 analysis=analysis,
+                speech_cognition_trace=speech_trace,
                 emotional_state_trace=emotional_trace,
                 selected_module="safety_supervisor",
                 started=started,
@@ -139,6 +146,7 @@ class DialogueOrchestratorService:
                         "cognitive_route": "tool_augmented_dialogue",
                     }
                 ),
+                speech_cognition_trace=speech_trace,
                 emotional_state_trace=emotional_trace,
                 selected_module="chat_tool_router",
                 started=started,
@@ -149,6 +157,7 @@ class DialogueOrchestratorService:
             return self._direct_response(
                 response=self._compose_human_dialogue(user_message, analysis, emotional_trace),
                 analysis=analysis,
+                speech_cognition_trace=speech_trace,
                 emotional_state_trace=emotional_trace,
                 selected_module=analysis.cognitive_route,
                 started=started,
@@ -180,17 +189,18 @@ class DialogueOrchestratorService:
                 tags=["dialogue", "preference", settings.ceibo_user_name.lower()],
             )
 
+        trace = self._build_trace(
+            analysis=analysis,
+            speech_cognition_trace=speech_trace,
+            emotional_state_trace=emotional_trace,
+            selected_module=analysis.cognitive_route,
+            provider=settings.default_llm_provider,
+            latency_ms=self._elapsed_ms(started),
+            fallback_used=fallback_used,
+        )
         return DialogueOrchestratorResponse(
             response=response,
-            trace=DialogueOrchestrationTrace(
-                analysis=analysis,
-                emotional_state_trace=emotional_trace,
-                selected_module=analysis.cognitive_route,
-                provider=settings.default_llm_provider,
-                latency_ms=self._elapsed_ms(started),
-                fallback_used=fallback_used,
-                safety_checked=True,
-            ),
+            trace=trace,
         )
 
     def analyze(self, message: str, *, safety_class: str = "normal") -> DialogueAnalysis:
@@ -404,23 +414,57 @@ class DialogueOrchestratorService:
         *,
         response: str,
         analysis: DialogueAnalysis,
+        speech_cognition_trace: SpeechCognitionTrace | None = None,
         emotional_state_trace: EmotionalStateTrace | None = None,
         selected_module: str,
         started: float,
         tool_used: str | None = None,
     ) -> DialogueOrchestratorResponse:
+        trace = self._build_trace(
+            analysis=analysis,
+            speech_cognition_trace=speech_cognition_trace,
+            emotional_state_trace=emotional_state_trace,
+            selected_module=selected_module,
+            tool_used=tool_used,
+            provider="ceibo_dialogue_orchestrator",
+            latency_ms=self._elapsed_ms(started),
+            fallback_used=False,
+        )
         return DialogueOrchestratorResponse(
             response=response,
-            trace=DialogueOrchestrationTrace(
-                analysis=analysis,
-                emotional_state_trace=emotional_state_trace,
-                selected_module=selected_module,
-                tool_used=tool_used,
-                provider="ceibo_dialogue_orchestrator",
-                latency_ms=self._elapsed_ms(started),
-                fallback_used=False,
-                safety_checked=True,
-            ),
+            trace=trace,
+        )
+
+    def _build_trace(
+        self,
+        *,
+        analysis: DialogueAnalysis,
+        selected_module: str,
+        speech_cognition_trace: SpeechCognitionTrace | None = None,
+        emotional_state_trace: EmotionalStateTrace | None = None,
+        tool_used: str | None = None,
+        provider: str | None = None,
+        latency_ms: int = 0,
+        fallback_used: bool = False,
+    ) -> DialogueOrchestrationTrace:
+        trace = DialogueOrchestrationTrace(
+            analysis=analysis,
+            speech_cognition_trace=speech_cognition_trace,
+            emotional_state_trace=emotional_state_trace,
+            selected_module=selected_module,
+            tool_used=tool_used,
+            provider=provider,
+            latency_ms=latency_ms,
+            fallback_used=fallback_used,
+            safety_checked=True,
+        )
+        return trace.model_copy(
+            update={
+                "spoken_response_plan": spoken_response_planner_service.plan(
+                    analysis=analysis,
+                    dialogue_trace=trace,
+                )
+            }
         )
 
     def _history_to_context(self, history: list[dict] | None, memory_context: str) -> list[str]:
@@ -430,6 +474,15 @@ class DialogueOrchestratorService:
             if content:
                 context.append(str(content))
         return context
+
+    def _coerce_speech_trace(self, value: SpeechCognitionTrace | dict | None) -> SpeechCognitionTrace | None:
+        if value is None:
+            return None
+        if isinstance(value, SpeechCognitionTrace):
+            return value
+        if isinstance(value, dict):
+            return SpeechCognitionTrace.model_validate(value)
+        return None
 
     def _tone(self, normalized: str) -> str:
         if self._contains(normalized, ("idiota", "inutil", "estupido", "mierda", "basura", "callate")):

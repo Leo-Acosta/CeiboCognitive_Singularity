@@ -148,6 +148,7 @@ chat front-door that classifies intent, tone, risk, ambiguity, irony and tool ro
 The QA and memory guardrails for that layer are documented in
 `docs/dialogue-orchestrator-qa-guardrails.md`.
 Emotional State Layer v1 is documented in `docs/emotional-state-layer-v1.md`.
+Human Speech Cognition Layer v1 is documented in `docs/human-speech-cognition-layer-v1.md`.
 - `POST /api/v1/memory/knowledge`
 - `GET /api/v1/memory/knowledge/search`
 - `GET /api/v1/tasks`

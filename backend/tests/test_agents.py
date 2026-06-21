@@ -1807,6 +1807,140 @@ async def test_cognitive_reflection_allows_stable_preference_even_with_emotional
 
 
 @pytest.mark.asyncio
+async def test_cognitive_reflection_uses_speech_trace_without_storing_uncertain_transcript():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_speech_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_speech_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt="eh no entiendo esto, arreglalo",
+                response="Repetime si entendi bien: queres que revise el problema y lo ordene paso a paso.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "devcore_reasoning",
+                        "analysis": {
+                            "intent": "technical_build",
+                            "cognitive_route": "devcore_reasoning",
+                            "safety_class": "normal",
+                            "memory_policy": "short_term_context",
+                            "ambiguity_score": 0.7,
+                            "irony_likelihood": 0,
+                        },
+                        "speech_cognition_trace": {
+                            "raw_transcript": "eh no entiendo esto, arreglalo",
+                            "normalized_transcript": "eh no entiendo esto, arreglalo",
+                            "language": "es-AR",
+                            "transcription_confidence": 0.5,
+                            "source": "simulated_speech",
+                            "audio_metadata": {},
+                            "speech_markers": ["explicit_confusion"],
+                            "possible_disfluencies": ["eh"],
+                            "detected_pauses": [1.4],
+                            "duration_seconds": 3.2,
+                            "urgency_markers": [],
+                            "clarity_level": "low",
+                            "ambiguity_level": "high",
+                            "handoff_to_dialogue_orchestrator": False,
+                            "recommended_processing_mode": "request_repetition",
+                            "should_request_repetition": True,
+                            "should_slow_down_response": True,
+                            "safety_notes": [
+                                "do not infer clinical state from speech",
+                                "do not infer personality from voice",
+                                "do not store momentary speech emotion as memory",
+                            ],
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is None
+        assert "speech:low" in record.tags
+        assert any("traza de habla humana" in item for item in record.did_well)
+        assert any("transcripcion literal" in item for item in record.should_learn)
+        assert not memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cognitive_reflection_allows_stable_preference_with_speech_trace():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_speech_pref_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_speech_pref_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt=(
+                    "De ahora en adelante, cuando te hable por voz sobre errores de codigo, "
+                    "explicame despacio y paso a paso."
+                ),
+                response="Entendido. Lo registro como preferencia estable para conversaciones por voz.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "human_dialogue",
+                        "analysis": {
+                            "intent": "memory_update",
+                            "cognitive_route": "human_dialogue",
+                            "safety_class": "normal",
+                            "memory_policy": "candidate_autobiographical_memory",
+                            "ambiguity_score": 0.1,
+                            "irony_likelihood": 0,
+                        },
+                        "speech_cognition_trace": {
+                            "raw_transcript": "De ahora en adelante, cuando te hable por voz sobre errores de codigo, explicame despacio y paso a paso.",
+                            "normalized_transcript": "de ahora en adelante, cuando te hable por voz sobre errores de codigo, explicame despacio y paso a paso.",
+                            "language": "es-AR",
+                            "transcription_confidence": 0.96,
+                            "source": "simulated_speech",
+                            "audio_metadata": {},
+                            "speech_markers": ["step_by_step_request"],
+                            "possible_disfluencies": [],
+                            "detected_pauses": [],
+                            "duration_seconds": 4.1,
+                            "urgency_markers": [],
+                            "clarity_level": "clear",
+                            "ambiguity_level": "low",
+                            "handoff_to_dialogue_orchestrator": True,
+                            "recommended_processing_mode": "dialogue_orchestrator",
+                            "should_request_repetition": False,
+                            "should_slow_down_response": True,
+                            "safety_notes": [
+                                "do not infer clinical state from speech",
+                                "do not infer personality from voice",
+                                "do not store momentary speech emotion as memory",
+                            ],
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is not None
+        assert record.recommended_memory.kind == "preference"
+        assert "speech:clear" in record.tags
+        assert memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_dataset_expansion_builds_review_file_without_touching_main_dataset(monkeypatch):
     dataset_path = Path(".tmp-tests") / f"dataset_expansion_main_{uuid4()}.jsonl"
     review_dir = Path(".tmp-tests") / f"dataset_expansion_reviews_{uuid4()}"

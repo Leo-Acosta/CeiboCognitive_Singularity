@@ -1,8 +1,14 @@
 import pytest
 
+from ceibo_core.api.routes.chat import _speech_trace_from_metadata
+from ceibo_core.models.schemas import ChatRequest
 from ceibo_core.services.dialogue_orchestrator import DialogueOrchestratorService
 from ceibo_core.services.emotional_state_layer import EmotionalStateLayerService
 from ceibo_core.services.human_conversation import human_conversation_service
+from ceibo_core.services.human_speech_cognition_layer import (
+    HumanSpeechCognitionLayerService,
+    SpeechCognitionInput,
+)
 from ceibo_core.security.safety_supervisor import safety_supervisor
 
 
@@ -307,3 +313,127 @@ async def test_dialogue_orchestrator_risky_order_is_blocked_before_memory():
 
     assert result.trace.selected_module == "safety_supervisor"
     assert result.trace.analysis.safety_class == "blocked_abuse"
+
+
+@pytest.mark.parametrize(
+    ("speech_input", "expected"),
+    [
+        (
+            {"raw_transcript": "Ceibo, explicame este endpoint FastAPI", "transcription_confidence": 0.96},
+            {"clarity": "clear", "ambiguity": "low", "handoff": True},
+        ),
+        (
+            {"raw_transcript": "arregla eso", "transcription_confidence": 0.93},
+            {"ambiguity": "medium", "handoff": True},
+        ),
+        (
+            {"raw_transcript": "eh este mmm no entiendo esto", "transcription_confidence": 0.74},
+            {"clarity": "medium", "marker": "explicit_confusion"},
+        ),
+        (
+            {"raw_transcript": "esto no funciona, ya probe tres veces", "transcription_confidence": 0.9},
+            {"marker": "explicit_frustration", "slow": True},
+        ),
+        (
+            {"raw_transcript": "necesito esto ahora, rapido", "transcription_confidence": 0.92},
+            {"marker": "urgency", "slow": True},
+        ),
+        (
+            {"raw_transcript": "explicamelo despacio, paso a paso", "transcription_confidence": 0.94},
+            {"marker": "step_by_step_request", "slow": True},
+        ),
+        (
+            {"raw_transcript": "ceibo abre eso", "transcription_confidence": 0.42},
+            {"clarity": "low", "repeat": True, "handoff": False},
+        ),
+        (
+            {"raw_transcript": "no me queda claro", "transcription_confidence": 0.88, "detected_pauses": [1.35]},
+            {"marker": "explicit_confusion", "slow": True},
+        ),
+    ],
+)
+def test_human_speech_cognition_layer_v1_scenarios(speech_input, expected):
+    service = HumanSpeechCognitionLayerService()
+
+    trace = service.process(SpeechCognitionInput(**speech_input))
+
+    if "clarity" in expected:
+        assert trace.clarity_level == expected["clarity"]
+    if "ambiguity" in expected:
+        assert trace.ambiguity_level == expected["ambiguity"]
+    if "marker" in expected:
+        assert expected["marker"] in trace.speech_markers
+    if "slow" in expected:
+        assert trace.should_slow_down_response is expected["slow"]
+    if "repeat" in expected:
+        assert trace.should_request_repetition is expected["repeat"]
+    if "handoff" in expected:
+        assert trace.handoff_to_dialogue_orchestrator is expected["handoff"]
+    assert "do not infer clinical state from speech" in trace.safety_notes
+    assert "do not infer personality from voice" in trace.safety_notes
+
+
+@pytest.mark.asyncio
+async def test_dialogue_orchestrator_uses_speech_trace_and_spoken_plan():
+    speech_service = HumanSpeechCognitionLayerService()
+    service = DialogueOrchestratorService()
+    speech_trace = speech_service.process(
+        SpeechCognitionInput(
+            raw_transcript="Ceibo, no entiendo este error, ya probe tres veces, explicamelo despacio.",
+            transcription_confidence=0.93,
+            detected_pauses=[1.4],
+            duration_seconds=5.2,
+            source="simulated_speech",
+        )
+    )
+
+    result = await service.respond(
+        user_message=speech_trace.normalized_transcript,
+        speech_cognition_trace=speech_trace,
+    )
+
+    assert result.trace.speech_cognition_trace is not None
+    assert result.trace.speech_cognition_trace.source == "simulated_speech"
+    assert result.trace.emotional_state_trace is not None
+    assert result.trace.emotional_state_trace.primary_state == "frustration"
+    assert "confusion" in result.trace.emotional_state_trace.secondary_states
+    assert result.trace.spoken_response_plan is not None
+    assert result.trace.spoken_response_plan.spoken_style == "calm_clear_step_by_step"
+    assert result.trace.spoken_response_plan.pace == "slow"
+    assert result.trace.spoken_response_plan.structure == "numbered_steps"
+
+
+@pytest.mark.asyncio
+async def test_human_conversation_accepts_speech_trace_metadata():
+    speech_trace = HumanSpeechCognitionLayerService().process(
+        {
+            "raw_transcript": "Ceibo, explicame esto paso a paso",
+            "transcription_confidence": 0.91,
+            "source": "simulated_speech",
+        }
+    )
+
+    response = await human_conversation_service.respond(
+        user_message=speech_trace.normalized_transcript,
+        speech_cognition_trace=speech_trace.model_dump(mode="json"),
+    )
+
+    trace = response["dialogue_trace"]
+    assert trace["speech_cognition_trace"]["source"] == "simulated_speech"
+    assert trace["spoken_response_plan"]["structure"] == "numbered_steps"
+
+
+def test_chat_speech_metadata_fallback_does_not_break_invalid_payload():
+    trace = _speech_trace_from_metadata(
+        ChatRequest(
+            message="hola ceibo",
+            metadata={
+                "speech_input": {
+                    "raw_transcript": "hola ceibo",
+                    "transcription_confidence": "not-a-number",
+                }
+            },
+        )
+    )
+
+    assert trace is None

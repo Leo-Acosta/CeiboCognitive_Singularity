@@ -103,6 +103,7 @@ class CognitiveReflectionService:
         trace = self._dialogue_trace(request)
         analysis = trace.get("analysis", {}) if trace else {}
         emotional = self._emotional_trace(request)
+        speech = self._speech_trace(request)
         if len(response) >= 160:
             strengths.append("Respondio con suficiente desarrollo inicial.")
         if "Siguientes pasos recomendados" in response or "siguiente" in response.lower():
@@ -119,6 +120,8 @@ class CognitiveReflectionService:
             strengths.append("Ejecuto control de seguridad antes de responder.")
         if emotional.get("recommended_response_style"):
             strengths.append(f"Considero estado emocional conversacional {emotional['primary_state']}.")
+        if speech.get("recommended_processing_mode"):
+            strengths.append(f"Uso traza de habla humana en modo {speech['recommended_processing_mode']}.")
         return strengths or ["Genero una respuesta util para continuar la conversacion."]
 
     def _missing(self, request: CognitiveReflectionRequest, response: str) -> list[str]:
@@ -127,6 +130,7 @@ class CognitiveReflectionService:
         trace = self._dialogue_trace(request)
         analysis = trace.get("analysis", {}) if trace else {}
         emotional = self._emotional_trace(request)
+        speech = self._speech_trace(request)
         if not request.used_context and not request.memory_context:
             missing.append("No uso memoria o contexto previo.")
         if "test" not in lowered and any(intent in request.intents for intent in ("devcore_modify", "training")):
@@ -150,6 +154,12 @@ class CognitiveReflectionService:
             and "primero" not in lowered
         ):
             missing.append("La capa emocional sugirio paso a paso pero la respuesta no lo reflejo.")
+        if speech.get("should_request_repetition") and not any(
+            token in lowered for token in ("repeti", "repetime", "confirm", "entendi bien")
+        ):
+            missing.append("La traza de habla tenia baja confianza pero la respuesta no pidio confirmacion.")
+        if speech.get("ambiguity_level") == "high" and "?" not in response:
+            missing.append("La traza de habla marco ambiguedad alta pero no se pidio precision.")
         return missing
 
     def _should_learn(
@@ -164,6 +174,7 @@ class CognitiveReflectionService:
         trace = self._dialogue_trace(request)
         analysis = trace.get("analysis", {}) if trace else {}
         emotional = self._emotional_trace(request)
+        speech = self._speech_trace(request)
         route = analysis.get("cognitive_route")
         if route == "human_dialogue":
             learning.append("Aprender patrones de dialogo humano: tono, continuidad, ironia y pregunta suave.")
@@ -175,6 +186,10 @@ class CognitiveReflectionService:
             learning.append("Usar estado emocional conversacional solo para adaptar la respuesta actual.")
         if emotional.get("should_avoid_memory"):
             learning.append("No convertir emociones momentaneas en memoria autobiografica.")
+        if speech.get("recommended_processing_mode"):
+            learning.append("Distinguir transcripcion literal, baja confianza y senales debiles de habla.")
+        if speech.get("should_request_repetition"):
+            learning.append("Pedir repeticion o confirmacion antes de razonar sobre una transcripcion dudosa.")
         if "decision" in request.prompt.lower() or "objetivo" in request.prompt.lower():
             learning.append("Guardar decisiones y objetivos importantes como memoria autobiografica.")
         if any(intent in request.intents for intent in ("training", "devcore_modify")):
@@ -220,7 +235,13 @@ class CognitiveReflectionService:
         )
         has_decision_marker = "decision" in normalized
         allow_explicit_stable_memory = has_goal_marker or has_decision_marker or has_preference_marker
-        block_reason = self._memory_block_reason(normalized, analysis, self._emotional_trace(request), allow_explicit_stable_memory)
+        block_reason = self._memory_block_reason(
+            normalized,
+            analysis,
+            self._emotional_trace(request),
+            self._speech_trace(request),
+            allow_explicit_stable_memory,
+        )
         if block_reason is not None:
             return None
         if has_goal_marker or has_decision_marker or has_preference_marker or should_store_dialogue:
@@ -270,6 +291,9 @@ class CognitiveReflectionService:
         emotional = self._emotional_trace(request)
         if emotional.get("primary_state"):
             tags.append(f"emotional:{emotional['primary_state']}")
+        speech = self._speech_trace(request)
+        if speech.get("clarity_level"):
+            tags.append(f"speech:{speech['clarity_level']}")
         return tags
 
     def _dialogue_trace(self, request: CognitiveReflectionRequest) -> dict[str, Any]:
@@ -281,11 +305,17 @@ class CognitiveReflectionService:
         emotional = trace.get("emotional_state_trace")
         return emotional if isinstance(emotional, dict) else {}
 
+    def _speech_trace(self, request: CognitiveReflectionRequest) -> dict[str, Any]:
+        trace = self._dialogue_trace(request)
+        speech = trace.get("speech_cognition_trace")
+        return speech if isinstance(speech, dict) else {}
+
     def _memory_block_reason(
         self,
         normalized_prompt: str,
         analysis: dict[str, Any],
         emotional: dict[str, Any] | None = None,
+        speech: dict[str, Any] | None = None,
         allow_explicit_stable_memory: bool = False,
     ) -> str | None:
         memory_policy = analysis.get("memory_policy")
@@ -298,6 +328,24 @@ class CognitiveReflectionService:
             return str(memory_policy)
         if emotional and emotional.get("should_avoid_memory") and not allow_explicit_stable_memory:
             return "emotional_state_should_not_be_memorized"
+        if speech and not allow_explicit_stable_memory:
+            if speech.get("should_request_repetition") or speech.get("clarity_level") == "low":
+                return "low_confidence_speech_not_memorized"
+            if "do not store momentary speech emotion as memory" in speech.get("safety_notes", []):
+                if self._contains(
+                    normalized_prompt,
+                    (
+                        "estoy",
+                        "me siento",
+                        "no entiendo",
+                        "no me queda claro",
+                        "no funciona",
+                        "no anda",
+                        "harto",
+                        "podrido",
+                    ),
+                ):
+                    return "speech_transient_state_not_memorized"
         if self._contains(
             normalized_prompt,
             (

@@ -5,7 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ceibo_core.agents.registry import agent_registry
 from ceibo_core.db.session import get_db
-from ceibo_core.models.schemas import AgentRole, ChatRequest, ChatResponse, CognitiveReflectionRequest
+from ceibo_core.models.schemas import (
+    AgentRole,
+    ChatRequest,
+    ChatResponse,
+    CognitiveReflectionRequest,
+    SpeechCognitionTrace,
+)
 from ceibo_core.services.cognitive_reflection import cognitive_reflection_service
 from ceibo_core.services.conversations import conversation_store
 from ceibo_core.services.event_bus import event_bus
@@ -13,6 +19,10 @@ from ceibo_core.services.autobiographical_memory import autobiographical_memory_
 from ceibo_core.services.memory import memory_service
 from ceibo_core.core.config import settings
 from ceibo_core.services.human_conversation import human_conversation_service
+from ceibo_core.services.human_speech_cognition_layer import (
+    SpeechCognitionInput,
+    human_speech_cognition_layer_service,
+)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -20,6 +30,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatResponse:
     session_id = request.session_id or str(uuid4())
+    speech_cognition_trace = _speech_trace_from_metadata(request)
     recent_messages = await conversation_store.recent_messages(db, session_id=session_id)
     semantic_memory = await memory_service.retrieve(session_id=session_id, query=request.message)
     autobiographical_context = await autobiographical_memory_service.context_for(request.message)
@@ -57,6 +68,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
             conversation_history=recent_messages,
             memory_context="\n".join(memory_context),
             mode=settings.ceibo_conversation_mode,
+            speech_cognition_trace=speech_cognition_trace,
         )
         # Build a ChatResponse-like structure to keep compatibility
         response_text = convo_resp.get("response", "")
@@ -152,3 +164,34 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
     )
     await event_bus.publish("ceibo.chat.completed", response.model_dump_json().encode())
     return response
+
+
+def _speech_trace_from_metadata(request: ChatRequest) -> SpeechCognitionTrace | None:
+    trace = request.metadata.get("speech_cognition_trace")
+    if isinstance(trace, dict):
+        try:
+            return SpeechCognitionTrace.model_validate(trace)
+        except Exception:
+            return None
+
+    speech_input = request.metadata.get("speech_input")
+    if isinstance(speech_input, dict):
+        try:
+            payload = {"raw_transcript": request.message, **speech_input}
+            return human_speech_cognition_layer_service.process(SpeechCognitionInput(**payload))
+        except Exception:
+            return None
+
+    if request.metadata.get("source") == "simulated_speech":
+        try:
+            return human_speech_cognition_layer_service.process(
+                SpeechCognitionInput(
+                    raw_transcript=request.message,
+                    language=str(request.metadata.get("language", "es-AR")),
+                    transcription_confidence=float(request.metadata.get("transcription_confidence", 1.0)),
+                    source="simulated_speech",
+                )
+            )
+        except Exception:
+            return None
+    return None
