@@ -1695,6 +1695,118 @@ async def test_cognitive_reflection_accepts_valid_memory_candidates(prompt, expe
 
 
 @pytest.mark.asyncio
+async def test_cognitive_reflection_uses_emotional_trace_without_storing_momentary_emotion():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_emotional_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_emotional_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt="Estoy podrido, esto no anda nunca, explicamelo bien porque ya me perdi.",
+                response="Vamos paso a paso. Primero aislamos el error, despues probamos una correccion chica.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "devcore_reasoning",
+                        "analysis": {
+                            "intent": "technical_build",
+                            "cognitive_route": "devcore_reasoning",
+                            "safety_class": "normal",
+                            "memory_policy": "blocked_transient_memory",
+                            "ambiguity_score": 0.35,
+                            "irony_likelihood": 0,
+                        },
+                        "emotional_state_trace": {
+                            "primary_state": "frustration",
+                            "secondary_states": ["confusion"],
+                            "confidence": 0.72,
+                            "intensity": "medium",
+                            "evidence": ["user reports repeated failure"],
+                            "recommended_response_style": "calm_step_by_step",
+                            "should_slow_down": True,
+                            "should_ask_clarifying_question": False,
+                            "should_offer_step_by_step": True,
+                            "should_avoid_memory": True,
+                            "safety_notes": ["do not store transient emotional state"],
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is None
+        assert "emotional:frustration" in record.tags
+        assert any("estado emocional conversacional" in item for item in record.should_learn)
+        assert any("No convertir emociones momentaneas" in item for item in record.should_learn)
+        assert not memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cognitive_reflection_allows_stable_preference_even_with_emotional_layer_present():
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_emotional_pref_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_emotional_pref_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt=(
+                    "De ahora en adelante, cuando estemos corrigiendo errores de codigo, "
+                    "explicame paso a paso y no me tires todo junto."
+                ),
+                response="Entendido. Lo tratare como una preferencia operativa estable.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "human_dialogue",
+                        "analysis": {
+                            "intent": "memory_update",
+                            "cognitive_route": "human_dialogue",
+                            "safety_class": "normal",
+                            "memory_policy": "candidate_autobiographical_memory",
+                            "ambiguity_score": 0.1,
+                            "irony_likelihood": 0,
+                        },
+                        "emotional_state_trace": {
+                            "primary_state": "neutral",
+                            "secondary_states": [],
+                            "confidence": 0.45,
+                            "intensity": "low",
+                            "evidence": ["no strong emotional signal detected"],
+                            "recommended_response_style": "clear_neutral",
+                            "should_slow_down": False,
+                            "should_ask_clarifying_question": False,
+                            "should_offer_step_by_step": True,
+                            "should_avoid_memory": False,
+                            "safety_notes": ["do not infer personality or diagnosis"],
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is not None
+        assert record.recommended_memory.kind == "preference"
+        assert "frustration" not in record.recommended_memory.content.lower()
+        assert memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_dataset_expansion_builds_review_file_without_touching_main_dataset(monkeypatch):
     dataset_path = Path(".tmp-tests") / f"dataset_expansion_main_{uuid4()}.jsonl"
     review_dir = Path(".tmp-tests") / f"dataset_expansion_reviews_{uuid4()}"

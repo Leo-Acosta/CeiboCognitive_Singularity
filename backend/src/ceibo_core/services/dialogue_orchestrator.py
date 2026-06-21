@@ -11,9 +11,11 @@ from ceibo_core.models.schemas import (
     DialogueOrchestrationTrace,
     DialogueOrchestratorResponse,
     DialogueSignal,
+    EmotionalStateTrace,
 )
 from ceibo_core.services.chat_tools import ChatToolResult, chat_tool_router
 from ceibo_core.services.dialogue_memory import dialogue_memory_service
+from ceibo_core.services.emotional_state_layer import emotional_state_layer_service
 from ceibo_core.services.llm_gateway import llm_gateway
 from ceibo_core.services.persona import build_persona_prompt
 from ceibo_core.security.safety_supervisor import safety_supervisor
@@ -92,6 +94,11 @@ class DialogueOrchestratorService:
         started = perf_counter()
         safety_class = safety_supervisor.classify(user_message)
         analysis = self.analyze(user_message, safety_class=safety_class)
+        emotional_trace = emotional_state_layer_service.assess(
+            user_message=user_message,
+            analysis=analysis,
+            conversation_context=self._history_to_context(conversation_history, memory_context or ""),
+        )
 
         if safety_class == "blocked_abuse":
             return self._direct_response(
@@ -100,6 +107,7 @@ class DialogueOrchestratorService:
                     "Si queres, puedo llevarlo a un analisis defensivo, educativo o de laboratorio controlado."
                 ),
                 analysis=analysis,
+                emotional_state_trace=emotional_trace,
                 selected_module="safety_supervisor",
                 started=started,
             )
@@ -110,6 +118,7 @@ class DialogueOrchestratorService:
                     "Puedo analizarlo primero en modo seguro, sin ejecutar nada, y despues pedir confirmacion exacta."
                 ),
                 analysis=analysis,
+                emotional_state_trace=emotional_trace,
                 selected_module="safety_supervisor",
                 started=started,
             )
@@ -130,6 +139,7 @@ class DialogueOrchestratorService:
                         "cognitive_route": "tool_augmented_dialogue",
                     }
                 ),
+                emotional_state_trace=emotional_trace,
                 selected_module="chat_tool_router",
                 started=started,
                 tool_used=tool_result.tool_name,
@@ -137,8 +147,9 @@ class DialogueOrchestratorService:
 
         if self._should_answer_human_locally(analysis):
             return self._direct_response(
-                response=self._compose_human_dialogue(user_message, analysis),
+                response=self._compose_human_dialogue(user_message, analysis, emotional_trace),
                 analysis=analysis,
+                emotional_state_trace=emotional_trace,
                 selected_module=analysis.cognitive_route,
                 started=started,
             )
@@ -173,6 +184,7 @@ class DialogueOrchestratorService:
             response=response,
             trace=DialogueOrchestrationTrace(
                 analysis=analysis,
+                emotional_state_trace=emotional_trace,
                 selected_module=analysis.cognitive_route,
                 provider=settings.default_llm_provider,
                 latency_ms=self._elapsed_ms(started),
@@ -257,7 +269,10 @@ class DialogueOrchestratorService:
             ),
         ):
             return self.route_rules[2]
-        if self._contains(normalized, ("endpoint", "fastapi", "codigo", "bug", "test", "commit", "docker", "frontend")):
+        if self._contains(
+            normalized,
+            ("endpoint", "fastapi", "codigo", "código", "bug", "test", "commit", "docker", "frontend", "error", "no anda", "no funciona"),
+        ):
             return self.route_rules[0]
         if self._contains(normalized, ("que sos", "quien sos", "ceibo", "proyecto", "cognicion", "singularidad", "estado")):
             return self.route_rules[1]
@@ -319,7 +334,26 @@ class DialogueOrchestratorService:
             return f"{result.answer}\n\nPara seguir sin adivinar:\n{steps}"
         return f"{result.answer}\n\nNotas utiles:\n{steps}"
 
-    def _compose_human_dialogue(self, message: str, analysis: DialogueAnalysis) -> str:
+    def _compose_human_dialogue(
+        self,
+        message: str,
+        analysis: DialogueAnalysis,
+        emotional_state_trace: EmotionalStateTrace | None = None,
+    ) -> str:
+        if analysis.intent == "memory_control":
+            return (
+                "Entendido. Lo tomo solo para esta conversacion y no lo voy a proponer como memoria persistente."
+            )
+        if analysis.intent == "memory_update":
+            return (
+                "Entendido. Lo trato como una preferencia u objetivo estable, y lo paso por guardrails antes de sugerir memoria."
+            )
+        if emotional_state_trace and emotional_state_trace.recommended_response_style == "calm_step_by_step":
+            return (
+                "Vamos despacio y ordenado. Primero separo el problema, despues vemos una causa probable "
+                "y al final te doy un paso concreto para probar.\n\n"
+                "No voy a guardar este estado emocional como memoria; lo uso solo para responder mejor ahora."
+            )
         parts = [
             "Si. Puedo conversar con vos de una forma mas natural: menos informe, mas presencia, y con mejor lectura del tono.",
             "Voy a tratar cada mensaje como algo humano antes que como una orden seca: intencion, contexto, emocion, ambiguedad e ironia posible.",
@@ -370,6 +404,7 @@ class DialogueOrchestratorService:
         *,
         response: str,
         analysis: DialogueAnalysis,
+        emotional_state_trace: EmotionalStateTrace | None = None,
         selected_module: str,
         started: float,
         tool_used: str | None = None,
@@ -378,6 +413,7 @@ class DialogueOrchestratorService:
             response=response,
             trace=DialogueOrchestrationTrace(
                 analysis=analysis,
+                emotional_state_trace=emotional_state_trace,
                 selected_module=selected_module,
                 tool_used=tool_used,
                 provider="ceibo_dialogue_orchestrator",
@@ -512,6 +548,8 @@ class DialogueOrchestratorService:
                 "recorda que",
                 "recuerda que",
                 "quiero que recuerdes",
+                "de ahora en adelante",
+                "siempre que",
                 "decision:",
                 "decision ",
             ),

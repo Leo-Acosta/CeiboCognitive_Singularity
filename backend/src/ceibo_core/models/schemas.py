@@ -147,8 +147,23 @@ class DialogueAnalysis(BaseModel):
     signals: list[DialogueSignal] = Field(default_factory=list)
 
 
+class EmotionalStateTrace(BaseModel):
+    primary_state: str = "neutral"
+    secondary_states: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    intensity: str = "low"
+    evidence: list[str] = Field(default_factory=list)
+    recommended_response_style: str = "clear_neutral"
+    should_slow_down: bool = False
+    should_ask_clarifying_question: bool = False
+    should_offer_step_by_step: bool = False
+    should_avoid_memory: bool = True
+    safety_notes: list[str] = Field(default_factory=list)
+
+
 class DialogueOrchestrationTrace(BaseModel):
     analysis: DialogueAnalysis
+    emotional_state_trace: EmotionalStateTrace | None = None
     selected_module: str
     tool_used: str | None = None
     provider: str | None = None

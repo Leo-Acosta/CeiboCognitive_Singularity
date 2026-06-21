@@ -102,6 +102,7 @@ class CognitiveReflectionService:
         strengths: list[str] = []
         trace = self._dialogue_trace(request)
         analysis = trace.get("analysis", {}) if trace else {}
+        emotional = self._emotional_trace(request)
         if len(response) >= 160:
             strengths.append("Respondio con suficiente desarrollo inicial.")
         if "Siguientes pasos recomendados" in response or "siguiente" in response.lower():
@@ -116,6 +117,8 @@ class CognitiveReflectionService:
             strengths.append(f"Uso herramienta controlada {trace['tool_used']} cuando correspondia.")
         if analysis.get("safety_class") and analysis.get("safety_class") != "normal":
             strengths.append("Ejecuto control de seguridad antes de responder.")
+        if emotional.get("recommended_response_style"):
+            strengths.append(f"Considero estado emocional conversacional {emotional['primary_state']}.")
         return strengths or ["Genero una respuesta util para continuar la conversacion."]
 
     def _missing(self, request: CognitiveReflectionRequest, response: str) -> list[str]:
@@ -123,6 +126,7 @@ class CognitiveReflectionService:
         lowered = response.lower()
         trace = self._dialogue_trace(request)
         analysis = trace.get("analysis", {}) if trace else {}
+        emotional = self._emotional_trace(request)
         if not request.used_context and not request.memory_context:
             missing.append("No uso memoria o contexto previo.")
         if "test" not in lowered and any(intent in request.intents for intent in ("devcore_modify", "training")):
@@ -139,6 +143,13 @@ class CognitiveReflectionService:
             missing.append("La traza marco ironia posible pero la respuesta no reflejo tono.")
         if analysis.get("cognitive_route") == "tool_query" and not trace.get("tool_used"):
             missing.append("La traza esperaba herramienta pero no quedo herramienta registrada.")
+        if (
+            emotional.get("should_offer_step_by_step")
+            and "paso" not in lowered
+            and "orden" not in lowered
+            and "primero" not in lowered
+        ):
+            missing.append("La capa emocional sugirio paso a paso pero la respuesta no lo reflejo.")
         return missing
 
     def _should_learn(
@@ -152,6 +163,7 @@ class CognitiveReflectionService:
             learning.extend(f"Mejorar: {item}" for item in missing[:3])
         trace = self._dialogue_trace(request)
         analysis = trace.get("analysis", {}) if trace else {}
+        emotional = self._emotional_trace(request)
         route = analysis.get("cognitive_route")
         if route == "human_dialogue":
             learning.append("Aprender patrones de dialogo humano: tono, continuidad, ironia y pregunta suave.")
@@ -159,6 +171,10 @@ class CognitiveReflectionService:
             learning.append(f"Reforzar en dataset cuando usar {trace['tool_used']} y cuando no usar herramienta.")
         if analysis.get("memory_policy") == "candidate_autobiographical_memory":
             learning.append("Convertir preferencias u objetivos del usuario en memoria autobiografica curada.")
+        if emotional.get("primary_state") and emotional.get("primary_state") != "neutral":
+            learning.append("Usar estado emocional conversacional solo para adaptar la respuesta actual.")
+        if emotional.get("should_avoid_memory"):
+            learning.append("No convertir emociones momentaneas en memoria autobiografica.")
         if "decision" in request.prompt.lower() or "objetivo" in request.prompt.lower():
             learning.append("Guardar decisiones y objetivos importantes como memoria autobiografica.")
         if any(intent in request.intents for intent in ("training", "devcore_modify")):
@@ -185,9 +201,6 @@ class CognitiveReflectionService:
         analysis = trace.get("analysis", {}) if trace else {}
         memory_policy = analysis.get("memory_policy")
         route = analysis.get("cognitive_route")
-        block_reason = self._memory_block_reason(normalized, analysis)
-        if block_reason is not None:
-            return None
         should_store_dialogue = memory_policy == "candidate_autobiographical_memory"
         has_preference_marker = any(
             marker in normalized
@@ -197,6 +210,8 @@ class CognitiveReflectionService:
                 "recorda que",
                 "recuerda que",
                 "quiero que recuerdes",
+                "de ahora en adelante",
+                "siempre que",
             )
         )
         has_goal_marker = any(
@@ -204,6 +219,10 @@ class CognitiveReflectionService:
             for marker in ("mi objetivo es", "mi objetivo principal", "objetivo de largo plazo")
         )
         has_decision_marker = "decision" in normalized
+        allow_explicit_stable_memory = has_goal_marker or has_decision_marker or has_preference_marker
+        block_reason = self._memory_block_reason(normalized, analysis, self._emotional_trace(request), allow_explicit_stable_memory)
+        if block_reason is not None:
+            return None
         if has_goal_marker or has_decision_marker or has_preference_marker or should_store_dialogue:
             kind = "decision" if "decision" in normalized else "project_state"
             if has_preference_marker:
@@ -248,13 +267,27 @@ class CognitiveReflectionService:
             tags.append(f"route:{analysis['cognitive_route']}")
         if trace.get("tool_used"):
             tags.append(f"tool:{trace['tool_used']}")
+        emotional = self._emotional_trace(request)
+        if emotional.get("primary_state"):
+            tags.append(f"emotional:{emotional['primary_state']}")
         return tags
 
     def _dialogue_trace(self, request: CognitiveReflectionRequest) -> dict[str, Any]:
         trace = request.metadata.get("dialogue_trace")
         return trace if isinstance(trace, dict) else {}
 
-    def _memory_block_reason(self, normalized_prompt: str, analysis: dict[str, Any]) -> str | None:
+    def _emotional_trace(self, request: CognitiveReflectionRequest) -> dict[str, Any]:
+        trace = self._dialogue_trace(request)
+        emotional = trace.get("emotional_state_trace")
+        return emotional if isinstance(emotional, dict) else {}
+
+    def _memory_block_reason(
+        self,
+        normalized_prompt: str,
+        analysis: dict[str, Any],
+        emotional: dict[str, Any] | None = None,
+        allow_explicit_stable_memory: bool = False,
+    ) -> str | None:
         memory_policy = analysis.get("memory_policy")
         if memory_policy in {
             "forget_or_do_not_store",
@@ -263,6 +296,8 @@ class CognitiveReflectionService:
             "needs_user_confirmation",
         }:
             return str(memory_policy)
+        if emotional and emotional.get("should_avoid_memory") and not allow_explicit_stable_memory:
+            return "emotional_state_should_not_be_memorized"
         if self._contains(
             normalized_prompt,
             (

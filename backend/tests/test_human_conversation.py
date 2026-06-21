@@ -1,6 +1,7 @@
 import pytest
 
 from ceibo_core.services.dialogue_orchestrator import DialogueOrchestratorService
+from ceibo_core.services.emotional_state_layer import EmotionalStateLayerService
 from ceibo_core.services.human_conversation import human_conversation_service
 from ceibo_core.security.safety_supervisor import safety_supervisor
 
@@ -172,6 +173,82 @@ def test_dialogue_trace_is_minimal_and_traceable():
     assert "raw_message" not in trace
     assert "private_inference" not in trace
     assert trace["analysis"]["memory_policy"] == "short_term_context"
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Hola, revisemos esto", {"primary": "neutral", "style": "clear_neutral"}),
+        ("Estoy frustrado, no funciona nada", {"primary": "frustration", "avoid": True}),
+        ("Estoy podrido, esto no anda nunca", {"primary": "frustration", "intensity": "medium"}),
+        ("Excelente, vamos muy bien", {"primary": "enthusiasm", "avoid": True}),
+        ("No entiendo, me perdi", {"primary": "confusion", "ask": True}),
+        ("Es urgente, necesito esto ahora", {"primary": "urgency"}),
+        ("Si claro, buenisimo... jaja", {"primary": "emotional_irony", "avoid": True}),
+        ("Claro seguro, recorda eso jaja", {"primary": "emotional_irony", "avoid": True}),
+        ("Estoy enojado con este error", {"primary": "anger", "avoid": True}),
+        ("No se si este endpoint esta bien", {"primary": "doubt", "step": True}),
+        ("Necesito hablar, estoy trabado", {"primary": "frustration", "style": "calm_step_by_step"}),
+        (
+            "Estoy podrido, esto no anda nunca, explicamelo bien porque ya me perdi",
+            {"primary": "frustration", "secondary": "confusion", "style": "calm_step_by_step", "avoid": True},
+        ),
+        (
+            "De ahora en adelante, cuando estemos corrigiendo errores de codigo, explicame paso a paso y no me tires todo junto.",
+            {"primary": "neutral", "avoid": False},
+        ),
+        ("no recuerdes esto, estoy cansado", {"primary": "fatigue", "avoid": True}),
+        ("hoy estoy triste", {"primary": "neutral", "avoid": True}),
+        ("prefiero que CEIBO me explique paso a paso", {"primary": "neutral", "avoid": False}),
+        ("prefiero que no uses ese estilo", {"primary": "resistance", "avoid": True}),
+        ("tal vez podriamos revisar algo", {"primary": "doubt"}),
+    ],
+)
+def test_emotional_state_layer_v1_scenarios(message, expected):
+    orchestrator = DialogueOrchestratorService()
+    layer = EmotionalStateLayerService()
+    analysis = orchestrator.analyze(message, safety_class=safety_supervisor.classify(message))
+
+    trace = layer.assess(user_message=message, analysis=analysis)
+
+    assert trace.primary_state == expected["primary"]
+    if "secondary" in expected:
+        assert expected["secondary"] in trace.secondary_states
+    if "style" in expected:
+        assert trace.recommended_response_style == expected["style"]
+    if "intensity" in expected:
+        assert trace.intensity == expected["intensity"]
+    if "avoid" in expected:
+        assert trace.should_avoid_memory is expected["avoid"]
+    if expected.get("ask"):
+        assert trace.should_ask_clarifying_question is True
+    if expected.get("step"):
+        assert trace.should_offer_step_by_step is True
+    assert 0 <= trace.confidence <= 1
+    assert len(trace.evidence) <= 4
+    clinical_states = " ".join([trace.primary_state, *trace.secondary_states]).lower()
+    assert "diagnos" not in clinical_states
+    assert "depression" not in clinical_states
+    assert "disorder" not in clinical_states
+    assert "personality" not in clinical_states
+    assert "diagnosis" not in trace.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_dialogue_orchestrator_adds_emotional_state_trace():
+    service = DialogueOrchestratorService()
+
+    result = await service.respond(
+        user_message="Estoy podrido, esto no anda nunca, explicamelo bien porque ya me perdi"
+    )
+
+    emotional = result.trace.emotional_state_trace
+    assert emotional is not None
+    assert result.trace.analysis.intent == "technical_build"
+    assert emotional.primary_state == "frustration"
+    assert "confusion" in emotional.secondary_states
+    assert emotional.recommended_response_style == "calm_step_by_step"
+    assert emotional.should_avoid_memory is True
 
 
 @pytest.mark.asyncio
