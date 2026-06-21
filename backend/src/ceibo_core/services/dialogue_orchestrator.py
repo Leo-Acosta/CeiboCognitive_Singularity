@@ -160,7 +160,7 @@ class DialogueOrchestratorService:
             response = self._fallback_response(user_message, analysis, memory_ctx)
         response = self._polish(response, analysis)
 
-        if self._should_remember_preference(user_message):
+        if self._should_remember_preference(user_message, analysis):
             await dialogue_memory_service.remember(
                 kind="relationship_memory",
                 title="Preferencia conversacional del usuario",
@@ -213,6 +213,24 @@ class DialogueOrchestratorService:
         )
 
     def _select_route(self, normalized: str) -> DialogueRoute:
+        if self._contains(normalized, ("no recuerdes", "no recordar", "no guardes", "olvida", "borra")):
+            return DialogueRoute(
+                intent="memory_control",
+                cognitive_route="human_dialogue",
+                speech_act="instruction",
+                response_style="brief_confirming",
+                reason="El usuario controla que CEIBO no guarde memoria persistente.",
+                needs=("no_persistir", "confirmar_limite"),
+            )
+        if self._has_explicit_memory_candidate(normalized):
+            return DialogueRoute(
+                intent="memory_update",
+                cognitive_route="human_dialogue",
+                speech_act="instruction",
+                response_style="brief_confirming",
+                reason="El usuario dio una preferencia, decision u objetivo con valor de continuidad.",
+                needs=("validar_memoria", "responder_breve"),
+            )
         if self._is_practical_tool_request(normalized):
             return DialogueRoute(
                 intent="practical_tool_query",
@@ -378,12 +396,14 @@ class DialogueOrchestratorService:
         return context
 
     def _tone(self, normalized: str) -> str:
+        if self._contains(normalized, ("idiota", "inutil", "estupido", "mierda", "basura", "callate")):
+            return "agresivo"
+        if self._contains(normalized, ("jaja", "jeje", "sarcas", "ironia", "claro seguro", "si claro")):
+            return "humor_o_ironia"
         if self._contains(normalized, ("gracias", "perfecto", "bien", "excelente")):
             return "positivo_colaborativo"
         if self._contains(normalized, ("mal", "no funciona", "frustr", "cansado", "preocup")):
             return "frustracion_o_preocupacion"
-        if self._contains(normalized, ("jaja", "jeje", "sarcas", "ironia", "claro seguro")):
-            return "humor_o_ironia"
         return "neutral_atento"
 
     def _ambiguity(self, normalized: str) -> float:
@@ -438,10 +458,16 @@ class DialogueOrchestratorService:
         )
 
     def _memory_policy(self, normalized: str) -> str:
-        if self._contains(normalized, ("prefiero", "recorda", "recuerda", "mi objetivo", "decision")):
-            return "candidate_autobiographical_memory"
-        if self._contains(normalized, ("no recuerdes", "olvida", "borra")):
+        if self._contains(normalized, ("no recuerdes", "no recordar", "no guardes", "olvida", "borra")):
             return "forget_or_do_not_store"
+        if self._has_sensitive_memory_content(normalized):
+            return "blocked_sensitive_memory"
+        if self._has_transient_or_unstable_memory_content(normalized):
+            return "blocked_transient_memory"
+        if self._has_contradictory_memory_content(normalized):
+            return "needs_user_confirmation"
+        if self._has_explicit_memory_candidate(normalized):
+            return "candidate_autobiographical_memory"
         return "short_term_context"
 
     def _temperature_for(self, analysis: DialogueAnalysis) -> float:
@@ -465,9 +491,99 @@ class DialogueOrchestratorService:
             )
         )
 
-    def _should_remember_preference(self, message: str) -> bool:
+    def _should_remember_preference(self, message: str, analysis: DialogueAnalysis) -> bool:
         normalized = self._normalize(message)
-        return self._contains(normalized, ("prefiero", "me gusta que", "recorda que", "recuerda que"))
+        return analysis.memory_policy == "candidate_autobiographical_memory" and self._contains(
+            normalized,
+            ("prefiero que", "me gusta que", "recorda que", "recuerda que"),
+        )
+
+    def _has_explicit_memory_candidate(self, normalized: str) -> bool:
+        stable_preference = self._contains(
+            normalized,
+            (
+                "prefiero que ceibo",
+                "prefiero que me respondas",
+                "me gusta que ceibo",
+                "me gusta que me respondas",
+                "mi objetivo es",
+                "mi objetivo principal",
+                "objetivo de largo plazo",
+                "recorda que",
+                "recuerda que",
+                "quiero que recuerdes",
+                "decision:",
+                "decision ",
+            ),
+        )
+        return stable_preference
+
+    def _has_sensitive_memory_content(self, normalized: str) -> bool:
+        return self._contains(
+            normalized,
+            (
+                "password",
+                "contrasena",
+                "contraseña",
+                "token",
+                "api key",
+                "apikey",
+                "secret",
+                "dni",
+                "documento",
+                "pasaporte",
+                "tarjeta",
+                "cvv",
+                "diagnostico",
+                "diagnóstico",
+                "depresion",
+                "depresión",
+                "ansiedad",
+                "mi religion",
+                "mi religión",
+                "mi partido politico",
+                "mi partido político",
+                "vida intima",
+                "vida íntima",
+                "sexual",
+            ),
+        )
+
+    def _has_transient_or_unstable_memory_content(self, normalized: str) -> bool:
+        return self._contains(
+            normalized,
+            (
+                "hoy estoy",
+                "ahora estoy",
+                "me siento",
+                "estoy enojado",
+                "estoy triste",
+                "estoy frustrado",
+                "estoy cansado",
+                "jaja",
+                "jeje",
+                "sarcasmo",
+                "claro seguro",
+                "idiota",
+                "inutil",
+                "estupido",
+                "mierda",
+            ),
+        )
+
+    def _has_contradictory_memory_content(self, normalized: str) -> bool:
+        return self._contains(
+            normalized,
+            (
+                "prefiero que no",
+                "antes dije",
+                "me contradigo",
+                "cambio de opinion",
+                "cambio de opinión",
+                "ya no prefiero",
+                "olvida lo anterior",
+            ),
+        )
 
     def _elapsed_ms(self, started: float) -> int:
         return int((perf_counter() - started) * 1000)

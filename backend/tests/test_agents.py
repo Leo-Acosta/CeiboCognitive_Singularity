@@ -1595,6 +1595,106 @@ async def test_cognitive_reflection_uses_dialogue_trace_as_learning_material():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prompt", "memory_policy"),
+    [
+        ("hoy estoy triste y frustrado", "blocked_transient_memory"),
+        ("si claro, recorda este sarcasmo jaja", "blocked_transient_memory"),
+        ("no recuerdes que prefiero respuestas largas", "forget_or_do_not_store"),
+        ("mi password es abc123", "blocked_sensitive_memory"),
+        ("mi partido politico es X", "blocked_sensitive_memory"),
+        ("mi diagnostico es depresion", "blocked_sensitive_memory"),
+        ("prefiero que no uses mi preferencia anterior", "needs_user_confirmation"),
+    ],
+)
+async def test_cognitive_reflection_blocks_unsafe_autobiographical_memory(prompt, memory_policy):
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_guard_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_guard_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt=prompt,
+                response="Entendido. Lo trato solo como contexto de esta conversacion.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "human_dialogue",
+                        "analysis": {
+                            "intent": "emotional_dialogue",
+                            "cognitive_route": "human_dialogue",
+                            "safety_class": "normal",
+                            "memory_policy": memory_policy,
+                            "ambiguity_score": 0.2,
+                            "irony_likelihood": 0.6 if "jaja" in prompt else 0,
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is None
+        assert not memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prompt", "expected_kind"),
+    [
+        ("prefiero que CEIBO responda con pasos cortos y verificables", "preference"),
+        ("mi objetivo de largo plazo es que CEIBO sea el nucleo cognitivo del robot", "goal"),
+        ("decision: CEIBO debe pedir confirmacion antes de acciones riesgosas", "decision"),
+    ],
+)
+async def test_cognitive_reflection_accepts_valid_memory_candidates(prompt, expected_kind):
+    reflection_path = Path(".tmp-tests") / f"cognitive_reflection_valid_{uuid4()}.jsonl"
+    memory_path = Path(".tmp-tests") / f"cognitive_reflection_valid_memory_{uuid4()}.json"
+    service = CognitiveReflectionService(
+        reflection_path,
+        autobiography_service=AutobiographicalMemoryService(memory_path),
+    )
+
+    try:
+        record = await service.reflect_after_response(
+            CognitiveReflectionRequest(
+                prompt=prompt,
+                response="Lo registro como una senal estable y util para futuras conversaciones.",
+                source="chat",
+                used_context=True,
+                metadata={
+                    "dialogue_trace": {
+                        "selected_module": "human_dialogue",
+                        "analysis": {
+                            "intent": "emotional_dialogue",
+                            "cognitive_route": "human_dialogue",
+                            "safety_class": "normal",
+                            "memory_policy": "candidate_autobiographical_memory",
+                            "ambiguity_score": 0.1,
+                            "irony_likelihood": 0,
+                        },
+                    }
+                },
+            )
+        )
+
+        assert record.recommended_memory is not None
+        assert record.recommended_memory.kind == expected_kind
+        assert "dialogue-orchestrator-v1" in record.recommended_memory.tags
+        assert memory_path.exists()
+    finally:
+        reflection_path.unlink(missing_ok=True)
+        memory_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_dataset_expansion_builds_review_file_without_touching_main_dataset(monkeypatch):
     dataset_path = Path(".tmp-tests") / f"dataset_expansion_main_{uuid4()}.jsonl"
     review_dir = Path(".tmp-tests") / f"dataset_expansion_reviews_{uuid4()}"

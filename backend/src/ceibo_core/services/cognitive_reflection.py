@@ -185,12 +185,31 @@ class CognitiveReflectionService:
         analysis = trace.get("analysis", {}) if trace else {}
         memory_policy = analysis.get("memory_policy")
         route = analysis.get("cognitive_route")
+        block_reason = self._memory_block_reason(normalized, analysis)
+        if block_reason is not None:
+            return None
         should_store_dialogue = memory_policy == "candidate_autobiographical_memory"
-        has_preference_marker = any(marker in normalized for marker in ("prefer", "prefiero", "me gusta que"))
-        if "objetivo" in normalized or "decision" in normalized or has_preference_marker or should_store_dialogue:
+        has_preference_marker = any(
+            marker in normalized
+            for marker in (
+                "prefiero que",
+                "me gusta que",
+                "recorda que",
+                "recuerda que",
+                "quiero que recuerdes",
+            )
+        )
+        has_goal_marker = any(
+            marker in normalized
+            for marker in ("mi objetivo es", "mi objetivo principal", "objetivo de largo plazo")
+        )
+        has_decision_marker = "decision" in normalized
+        if has_goal_marker or has_decision_marker or has_preference_marker or should_store_dialogue:
             kind = "decision" if "decision" in normalized else "project_state"
             if has_preference_marker:
                 kind = "preference"
+            if has_goal_marker:
+                kind = "goal"
             return AutobiographicalMemoryRequest(
                 kind=kind,
                 title=f"Reflexion desde {request.source}: {prompt[:72]}",
@@ -234,6 +253,94 @@ class CognitiveReflectionService:
     def _dialogue_trace(self, request: CognitiveReflectionRequest) -> dict[str, Any]:
         trace = request.metadata.get("dialogue_trace")
         return trace if isinstance(trace, dict) else {}
+
+    def _memory_block_reason(self, normalized_prompt: str, analysis: dict[str, Any]) -> str | None:
+        memory_policy = analysis.get("memory_policy")
+        if memory_policy in {
+            "forget_or_do_not_store",
+            "blocked_sensitive_memory",
+            "blocked_transient_memory",
+            "needs_user_confirmation",
+        }:
+            return str(memory_policy)
+        if self._contains(
+            normalized_prompt,
+            (
+                "no recuerdes",
+                "no recordar",
+                "no guardes",
+                "olvida",
+                "borra",
+            ),
+        ):
+            return "user_requested_no_memory"
+        if self._contains(
+            normalized_prompt,
+            (
+                "password",
+                "contrasena",
+                "contraseña",
+                "token",
+                "api key",
+                "apikey",
+                "secret",
+                "dni",
+                "documento",
+                "pasaporte",
+                "tarjeta",
+                "cvv",
+                "diagnostico",
+                "diagnóstico",
+                "depresion",
+                "depresión",
+                "ansiedad",
+                "mi religion",
+                "mi religión",
+                "mi partido politico",
+                "mi partido político",
+                "vida intima",
+                "vida íntima",
+                "sexual",
+            ),
+        ):
+            return "sensitive_content"
+        if self._contains(
+            normalized_prompt,
+            (
+                "hoy estoy",
+                "ahora estoy",
+                "me siento",
+                "estoy enojado",
+                "estoy triste",
+                "estoy frustrado",
+                "estoy cansado",
+                "jaja",
+                "jeje",
+                "sarcasmo",
+                "claro seguro",
+                "idiota",
+                "inutil",
+                "estupido",
+                "mierda",
+            ),
+        ):
+            return "transient_or_aggressive_content"
+        if self._contains(
+            normalized_prompt,
+            (
+                "prefiero que no",
+                "antes dije",
+                "me contradigo",
+                "cambio de opinion",
+                "cambio de opinión",
+                "ya no prefiero",
+            ),
+        ):
+            return "contradictory_preference"
+        return None
+
+    def _contains(self, value: str, needles: tuple[str, ...]) -> bool:
+        return any(needle in value for needle in needles)
 
     def _append(self, record: CognitiveReflectionRecord) -> None:
         path = self.reflection_path()
